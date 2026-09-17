@@ -1,0 +1,5 @@
+这是一段没有明显层级结构的普通说明文本。
+
+它只有自然段落，没有条款号，也没有 Markdown 标题。
+
+因此应该走 fallback recursive chunker。

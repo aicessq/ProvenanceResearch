@@ -149,13 +149,51 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.*.example
 .envrc
+.envrc.*
+.direnv/
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local credentials and runtime configuration
+**/data/config.db
+**/data/config.db-*
+credentials.json
+credentials.*.json
+service-account.json
+service-account-*.json
+service_account.json
+service_account_*.json
+secrets.json
+secrets.yaml
+secrets.yml
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.npmrc
+.netrc
+**/.aws/
+**/.azure/
+**/.docker/config.json
+application_default_credentials.json
+kubeconfig
+*.kubeconfig
+*.tfvars
+*.tfvars.json
 
 # Spyder project settings
 .spyderproject

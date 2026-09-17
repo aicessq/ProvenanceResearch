@@ -1,0 +1,66 @@
+# research_agent 统一基础设施编排。
+#
+# 范围（2026-09-17 骨架轮）：
+#   - 只含三个基础设施服务：PostgreSQL 16 / Redis 7 / Qdrant。
+#   - 应用服务（knowledge_engine 的 backend/worker、researcher 入口）不在此文件，
+#     待迁移接线完成后追加，避免制造"假集成点"。
+#   - 模型（LLM / Embedding）与 Tavily 全部走环境变量（契约见 .env.example），代码内禁止硬编码。
+#
+# 端口与凭据全部可用 .env 覆盖；若与 RAG_sec 旧栈（cybersec-* 容器）同时运行，请改端口。
+
+name: research-agent
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-research}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-research}
+      POSTGRES_DB: ${POSTGRES_DB:-research_agent}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-research} -d ${POSTGRES_DB:-research_agent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: ra-redis
+    restart: unless-stopped
+    # 开启 AOF，任务状态与缓存可恢复
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ra-qdrant
+    restart: unless-stopped
+    ports:
+      # 6333: HTTP（SDK 与健康检查）
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:

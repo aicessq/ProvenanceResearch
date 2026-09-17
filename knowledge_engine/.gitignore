@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# 环境变量（含密钥，禁止提交）
+.env
+.env.*
+!.env.example
+
+# 本地模型文件（规格 §2.7：models/ 必须忽略，禁止提交模型文件）
+/models/
+!/models/embedding/README.md
+!/models/reranker/README.md
+
+# 本地存储的上传原始文件（后续 Phase 用）
+storage/
+
+# 评测数据与产物
+eval/*.jsonl
+eval/reports/
+
+# 编辑器 / 操作系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/

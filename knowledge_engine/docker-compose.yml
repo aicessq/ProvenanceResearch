@@ -1,0 +1,188 @@
+# Docker Compose 编排文件。
+#
+# 设计说明（教学向）
+# =================
+# 1. Phase 0 验收要求：docker compose up 可启动，且 FastAPI / PostgreSQL / Redis / Qdrant 连接正常。
+#    本文件一次性拉起这四个服务，并用 Docker 网络让后端通过服务名（postgres/redis/qdrant）访问依赖。
+# 2. 各服务职责：
+#    - postgres:  关系型持久化（文档/版本/chunk/任务/评测等，后续 Phase 落表）。
+#    - redis:     实时任务状态缓存（与 PostgreSQL 双写，规格 §2.4）。
+#    - qdrant:    向量检索（仅索引 child chunk，规格 §2.3）。
+#    - backend:   FastAPI 应用，本阶段只暴露 /health 与 /health/ready。
+# 3. 数据持久化：postgres 与 qdrant 各挂一个命名卷，避免 docker compose down 后数据丢失。
+# 4. 端口映射到本机，方便在宿主机直接用 localhost 跑测试与 curl 验收。
+
+services:
+  # ---------- PostgreSQL ----------
+  postgres:
+    image: postgres:16
+    container_name: cybersec-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cybersec}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cybersec}
+      POSTGRES_DB: ${POSTGRES_DB:-cybersec_rag}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # 用 pg_isready 做容器健康检查，编排据此判断 postgres 是否就绪
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cybersec} -d ${POSTGRES_DB:-cybersec_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7
+    container_name: cybersec-redis
+    restart: unless-stopped
+    # 启动时持久化（AOF），后续 Phase 任务状态可恢复
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- Qdrant ----------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cybersec-qdrant
+    restart: unless-stopped
+    ports:
+      # 6333: HTTP（健康检查 / SDK 用）；6334: gRPC（可选）
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- FastAPI 后端 ----------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cybersec-backend
+    restart: unless-stopped
+    # 依赖三个基础设施服务先就绪再启动后端
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      # 注意：容器内访问同网络服务用服务名，不是 localhost
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      STORAGE_ROOT: /app/storage
+      EMBEDDING_MODEL_PATH: /app/models/embedding
+      RERANKER_MODEL_PATH: /app/models/reranker
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      DEBUG: ${DEBUG:-false}
+      CELERY_WORKER_PING_TIMEOUT_SECONDS: ${CELERY_WORKER_PING_TIMEOUT_SECONDS:-2}
+      CELERY_WORKER_REGISTRATION_CACHE_SECONDS: ${CELERY_WORKER_REGISTRATION_CACHE_SECONDS:-30}
+      QUEUED_STALE_SECONDS: ${QUEUED_STALE_SECONDS:-300}
+      DISPATCHED_QUEUE_STALE_SECONDS: ${DISPATCHED_QUEUE_STALE_SECONDS:-900}
+      WORKER_HEARTBEAT_INTERVAL_SECONDS: ${WORKER_HEARTBEAT_INTERVAL_SECONDS:-30}
+      PROCESSING_LEASE_TIMEOUT_SECONDS: ${PROCESSING_LEASE_TIMEOUT_SECONDS:-180}
+      TASK_RECOVERY_INTERVAL_SECONDS: ${TASK_RECOVERY_INTERVAL_SECONDS:-60}
+      TASK_RECOVERY_BATCH_SIZE: ${TASK_RECOVERY_BATCH_SIZE:-50}
+      TASK_MAX_RECOVERY_COUNT: ${TASK_MAX_RECOVERY_COUNT:-3}
+      TASK_AUTO_RECOVER_PROCESSING: ${TASK_AUTO_RECOVER_PROCESSING:-false}
+      TASK_STATUS_REDIS_TTL_SECONDS: ${TASK_STATUS_REDIS_TTL_SECONDS:-86400}
+    volumes:
+      - shared_storage:/app/storage
+      - ./models:/app/models:ro
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  # ---------- Celery Worker ----------
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cybersec-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      STORAGE_ROOT: /app/storage
+      EMBEDDING_MODEL_PATH: /app/models/embedding
+      RERANKER_MODEL_PATH: /app/models/reranker
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      DEBUG: ${DEBUG:-false}
+      WORKER_HEARTBEAT_INTERVAL_SECONDS: ${WORKER_HEARTBEAT_INTERVAL_SECONDS:-30}
+      PROCESSING_LEASE_TIMEOUT_SECONDS: ${PROCESSING_LEASE_TIMEOUT_SECONDS:-180}
+      TASK_RECOVERY_INTERVAL_SECONDS: ${TASK_RECOVERY_INTERVAL_SECONDS:-60}
+      TASK_RECOVERY_BATCH_SIZE: ${TASK_RECOVERY_BATCH_SIZE:-50}
+      TASK_MAX_RECOVERY_COUNT: ${TASK_MAX_RECOVERY_COUNT:-3}
+      TASK_AUTO_RECOVER_PROCESSING: ${TASK_AUTO_RECOVER_PROCESSING:-false}
+    volumes:
+      - shared_storage:/app/storage
+      - ./models:/app/models:ro
+    command: ["sh", "-c", "alembic upgrade head && celery -A app.workers.celery_app.celery_app worker --loglevel=INFO"]
+
+  # ---------- Celery Beat（stale 任务恢复调度） ----------
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cybersec-beat
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      STORAGE_ROOT: /app/storage
+      EMBEDDING_MODEL_PATH: /app/models/embedding
+      RERANKER_MODEL_PATH: /app/models/reranker
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      DEBUG: ${DEBUG:-false}
+      QUEUED_STALE_SECONDS: ${QUEUED_STALE_SECONDS:-300}
+      DISPATCHED_QUEUE_STALE_SECONDS: ${DISPATCHED_QUEUE_STALE_SECONDS:-900}
+      PROCESSING_LEASE_TIMEOUT_SECONDS: ${PROCESSING_LEASE_TIMEOUT_SECONDS:-180}
+      TASK_RECOVERY_INTERVAL_SECONDS: ${TASK_RECOVERY_INTERVAL_SECONDS:-60}
+      TASK_RECOVERY_BATCH_SIZE: ${TASK_RECOVERY_BATCH_SIZE:-50}
+      TASK_MAX_RECOVERY_COUNT: ${TASK_MAX_RECOVERY_COUNT:-3}
+      TASK_AUTO_RECOVER_PROCESSING: ${TASK_AUTO_RECOVER_PROCESSING:-false}
+    volumes:
+      - shared_storage:/app/storage
+      - ./models:/app/models:ro
+    command: ["sh", "-c", "alembic upgrade head && celery -A app.workers.celery_app.celery_app beat --loglevel=INFO"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  shared_storage:
