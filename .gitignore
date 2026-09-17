@@ -195,6 +195,15 @@ kubeconfig
 *.tfvars
 *.tfvars.json
 
+# Node / 前端构建产物
+# node_modules 属机械垃圾（两套前端合计 2 万余文件），上游曾误提交，这里一律不跟踪。
+node_modules/
+*.tsbuildinfo
+# vite.config.ts 的编译产物：tsconfig.node.json 设了 composite 且 include 该文件，
+# `tsc -b` 会生成同名 .js 与 .d.ts；源头是 vite.config.ts。
+/knowledge_engine/frontend/vite.config.js
+/knowledge_engine/frontend/vite.config.d.ts
+
 # Spyder project settings
 .spyderproject
 .spyproject

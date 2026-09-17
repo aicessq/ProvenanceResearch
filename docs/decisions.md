@@ -52,3 +52,30 @@
 - 决定：根 `.gitignore` 统一忽略任意层级的真实 `.env` 及其本地变体、`researcher` 的运行时 `data/config.db`、私钥/证书密钥库和常见云凭证文件；显式保留 `.env.example` 与 `.env.*.example` 配置模板。
 - 理由：项目面向本地自托管，用户会配置 LLM、Tavily 和基础设施凭证；`researcher/deep_research_system/data/config.db` 的 `model_slots.api_key` 字段也会存储运行时密钥。凭证文件必须默认拒绝提交，而模板仍需进入版本库以支持安装。
 - 验收：真实 `.env` 与 `data/config.db` 能被 `git check-ignore` 命中；三份现有 `.env.example` 不被忽略；Git 索引中不存在敏感命名文件；文件名级凭证扫描无额外私钥或凭证文件。
+
+## 2026-09-17 测试基线首次实测：两套测试全绿
+
+- 决定：把两个子系统的测试与前端构建**首次实际跑通并记录为基线**，结果写入新建的 `docs/testing.md`；此后每轮改动以该文件的命令为准，结论变化即回写。
+- 结果：`knowledge_engine` → 96 passed / 34 deselected（integration 默认排除）；`researcher` → 47 passed；两套前端 `npm ci && npm run build` 均通过；gitleaks v8.30.1 扫描无泄漏。**失败分类：0 个代码失败、0 个环境失败。**
+- 理由：P1/P2 的验收是"原测试全绿"，此前只有静态计数（34 模块 / 约 130 测试、8 模块 / 47 测试），从未实际运行；不实测就无法把"测试是否还绿"当作后续 AI 改动的裁判。
+- 附带发现：`researcher` 测试在没有 `.env` 的临时副本下同样 47 passed，故 CI 环境等价性成立；`knowledge_engine` 下本就没有 `.env`。integration 测试（34 个）需要真实 PG/Redis/Qdrant，因本机 Docker 守护进程未启动而未运行。
+
+## 2026-09-17 CI 范围：只做"跑既有测试"与"挡密钥"
+
+- 决定：PR 门禁只包含四项——`knowledge_engine` 单元测试、`researcher` 测试、两套前端构建、gitleaks 密钥扫描。
+- 明确不做：ruff / mypy / 格式门禁；integration 测试与 service container；OpenAPI 兼容性检查（属 P3，跟随 `/api/v1` 契约冻结）。
+- 理由：给两个旧项目加 lint 要么大面积红、要么逼出一份例外清单，两者都等于"顺手重构"，直接违反迁移期纪律。integration 需要 Docker，本机守护进程尚不满足，先作为 PR 外任务。前端构建之所以能进门禁，是因为已在本机验证通过，而不是凭预期。
+- 实现取舍：`researcher` 没有 pyproject/requirements，`environment.yml` 是唯一依赖清单，CI 从其 pip 段提取固定版本安装（不改该文件、不用 conda 拖慢 CI）；gitleaks 采用官方 action 而非自建下载步骤——沙箱网络无法验证 Linux 资产名，把平台解析交给 action 更可控。注意 organization 拥有的仓库需要 `GITLEAKS_LICENSE`，个人仓库不需要。
+
+## 2026-09-17 本机 knowledge_engine 测试环境复用系统包
+
+- 决定：本机跑 `knowledge_engine` 测试用的 `.venv` 以 `python -m venv --system-site-packages` 创建，torch / transformers / sentence-transformers 复用既有 conda 环境，其余依赖照常安装。
+- 理由：沙箱内 torch 的 127MB wheel 下载卡死（连续 5 分钟零字节到达，`--timeout 30` 亦无法中止），而 `test_reranker.py` 与 `reranker.py` 都在模块顶层 `import torch`，缺它连测试收集都会失败。
+- 代价与对冲：该环境**不是干净安装**，"命令可复现"因此被削弱。对冲手段是用 AST 静态核对代码与测试中的 14 个第三方顶层导入全部在 `pyproject.toml` 中声明，排除被继承环境掩盖的隐藏依赖；CI 仍走干净的 `pip install -e ".[test]"`。
+- 待办：网络恢复后应在干净 venv 中复跑一次以完全消除该不确定性。
+
+## 2026-09-17 用 docs/roadmap.md 承载 P0–P5 与逐阶段验收
+
+- 决定：新建 `docs/roadmap.md` 定义 P0、基线轮、P1–P5 的目标与验收，并显式说明它与 `knowledge_engine` 自带 Phase 0–10 是两套无关编号；根 `AGENTS.md` 与 `README.md` 的引用指向该文件。
+- 理由：根 `AGENTS.md` 要求"见各阶段'验收'行"，但仓库里此前只有旧 `knowledge_engine` 的 Phase 0–5，导致"未达标不进入下一阶段"这条纪律没有可解析的目标。
+- 同时补齐：根 `.env.example`（此前 README 要求 `cp .env.example .env` 但文件不存在，安装路径是断的）。

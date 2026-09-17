@@ -1,0 +1,107 @@
+# research_agent CI 第一版。
+#
+# 范围（基线轮，2026-09-17）：
+#   - 只跑两个子系统**既有**的测试与前端构建，外加密钥扫描。
+#   - 刻意不引入 ruff / mypy / 格式门禁：给两个旧项目加 lint 要么大面积红，
+#     要么逼出一份例外清单，两者都等于"顺手重构"，违反迁移期纪律。
+#   - integration 测试与 service container 暂不进门禁（本机 Docker 守护进程尚未稳定），
+#     待 P3 期间另行加入 main/定时任务。
+#
+# 验收见 docs/roadmap.md「基线轮」。
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # knowledge_engine 非 integration 测试。
+  # 命令与通过数记录于 docs/testing.md；pyproject 的 addopts 默认排除 integration。
+  knowledge-engine-tests:
+    name: knowledge_engine tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: knowledge_engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: knowledge_engine/pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+      - name: Run tests
+        run: python -m pytest -q
+
+  # researcher 测试。
+  # 该项目没有 pyproject/requirements，environment.yml 是唯一依赖清单，
+  # 所以从它的 pip 段提取固定版本安装，避免用 conda 拖慢 CI 或覆盖该文件。
+  researcher-tests:
+    name: researcher tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: researcher/deep_research_system
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies from environment.yml
+        run: |
+          python -m pip install --upgrade pip pyyaml
+          python -c "import yaml; d=yaml.safe_load(open('environment.yml'))['dependencies']; print('\n'.join(next(x['pip'] for x in d if isinstance(x, dict) and 'pip' in x)))" > /tmp/researcher-req.txt
+          python -m pip install -r /tmp/researcher-req.txt
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  # 两套旧前端各自构建。二者均在本机验证通过（见 docs/testing.md），
+  # 因此可以作为门禁；它们不会长期保留——P5 会重写为统一前端。
+  frontend-build:
+    name: frontend build (${{ matrix.frontend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        frontend:
+          - knowledge_engine/frontend
+          - researcher/deep_research_system/frontend
+    defaults:
+      run:
+        working-directory: ${{ matrix.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.frontend }}/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # 密钥扫描：凭证默认不进仓库的最后一道自动化防线。
+  # 注意：organization 拥有的仓库需要配置 GITLEAKS_LICENSE secret；
+  # 个人账号仓库无需 license。
+  secret-scan:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
