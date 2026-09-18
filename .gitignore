@@ -263,3 +263,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# eval corpus: arXiv PDF 与其页级镜像不入库（许可未声明，仅 manifest + 本地缓存）
+eval/corpus/pdf/arxiv/
+eval/corpus/text/ax_*.jsonl
+
+# 个人学习/面试材料：不进版本库，文件保留在本地磁盘。
+# 2026-09-18 已改写历史剔除（原骨架提交中已被跟踪），此处规则防止重新加入。
+knowledge_engine/Teach_Learn/
+researcher/project_course/
+researcher/project_interview_guide.html
+researcher/docs/interview-study-guide.html
+knowledge_engine/Doc/Phase10面试学习版.html
+knowledge_engine/Doc/前端阶段面试学习版.html
+knowledge_engine/Doc/项目技术面试说明.html
+knowledge_engine/Doc/架构与技术选型课程.html
+
+# 本地工具与会话状态：计划文件、会话记录等，不进版本库
+.zcode/
