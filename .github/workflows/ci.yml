@@ -105,3 +105,22 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 仓库契约：保护"证据"本身——评测语料、题集、配置模板与文档契约。
+  # 这个作业守护的是作品集的可信度（指标页与截图都建立在这些资产之上），
+  # 而不是代码风格；因此刻意不含 lint / 类型 / 格式检查。
+  # 纯标准库、不装依赖、不联网、不需要任何 secret。
+  repo-contracts:
+    name: repo contracts (eval assets + docs/env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 评测语料完整性（sha256 / 页数 / 入库与忽略一致性）
+        run: python eval/corpus/check_corpus.py
+      - name: 人工题集校验（schema / 配额 / 逐字可溯源）
+        run: python eval/questions/validate_questions.py
+      - name: 仓库契约（配置模板 / 路线图阶段 / 文档链接 / 决策只追加 / 敏感路径忽略）
+        run: python scripts/check_repo_contracts.py
