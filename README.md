@@ -1,5 +1,7 @@
 # research_agent
 
+[![CI](https://github.com/aicessq/ProvenanceResearch/actions/workflows/ci.yml/badge.svg)](https://github.com/aicessq/ProvenanceResearch/actions/workflows/ci.yml)
+
 私库 + 网络 + 学术来源的 Agentic RAG 研究系统：Agent 通过受限工具调用选择私库、网络与论文来源，在证据不足时追加检索，在预算或 deadline 到达时停止；所有结论必须通过引用闸门，否则拒答。
 
 这是一个面向本地自托管的 monorepo：用户下载项目，在本机运行基础设施，自己配置云端 LLM、embedding、reranker、OCR、vision 及搜索凭证。**当前文档已更新目标规格，供应商契约仍待确认，代码尚未实现这些新能力。**

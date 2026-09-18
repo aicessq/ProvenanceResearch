@@ -31,8 +31,8 @@
 
 - **目标**：复现两套既有测试，模板/README 自洽，版本控制与 CI 可用于后续 diff/回归。
 - **前置**：无业务代码改动；不能为 CI 全绿顺手重构旧代码。
-- **验收**：两套测试命令/数量/环境记录在 [testing.md](testing.md)，根模板存在，基线提交可审计，PR 上旧测试、前端构建与 gitleaks 全绿。
-- **状态**：本机记录为 KB 96 passed/34 deselected、researcher 47 passed；基线提交 `79a4614`；真实 PR CI 尚未验证。旧本地 torch 测试环境只作迁移回归，AST 导入声明核对不是干净安装或云协议通过的证明。
+- **验收**：两套测试命令/数量/环境记录在 [testing.md](testing.md)，根模板存在，基线提交可审计，CI 在 main push 上全绿。
+- **状态**：本机记录为 KB 96 passed/34 deselected、researcher 47 passed；基线提交已完成；**CI 已于 2026-09-18 在 main push 上实测全绿（6/6，run #2）**。旧本地 torch 测试环境只作迁移回归，AST 导入声明核对不是干净安装或云协议通过的证明——但 CI 里的 knowledge_engine 作业走的是干净 `pip install -e ".[test]"`，该项已由 CI 覆盖。
 
 ## P1（历史）— 平移知识引擎
 
