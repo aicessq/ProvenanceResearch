@@ -61,7 +61,7 @@ def load_page_texts():
     return texts
 
 
-def validate(question, manifest, page_texts):
+def validate(question, manifest, page_texts, notes):
     """返回该题的错误列表（空 = 通过）。"""
     errs = []
 
@@ -135,9 +135,13 @@ def validate(question, manifest, page_texts):
             errs.append(f"expected_locator[{i}].page {page} 超出 {doc_id} 总页数 {declared}")
         pages = page_texts.get(doc_id)
         if pages is None:
-            hint = "（arXiv 镜像被 gitignore：先跑 download_corpus.py 与 extract_text.py）" \
-                if not manifest[doc_id]["in_repo"] else ""
-            errs.append(f"{doc_id} 缺页级文本镜像{hint}")
+            if manifest[doc_id]["in_repo"]:
+                errs.append(f"{doc_id} 缺页级文本镜像（该资产应随仓库发布）")
+            else:
+                notes.append(
+                    f"{doc_id} 不随仓库发布（in_repo=false），跳过其页级逐字核对；"
+                    "本地有缓存时可完整核对（先跑 download_corpus.py 与 extract_text.py）"
+                )
         elif page not in pages:
             errs.append(f"{doc_id} 镜像中无第 {page} 页")
         in_corpus_locs.append((loc_, doc_id, page))
@@ -177,11 +181,21 @@ def validate(question, manifest, page_texts):
     if qtype != "external_only" and in_corpus_locs:
         if qtype != "insufficient" and not required:
             errs.append(f"{qtype} 题的 required_points 不得为空")
-        corpus_pages = [page_texts[d][p] for _, d, p in in_corpus_locs if d in page_texts and p in page_texts[d]]
-        joined = strip_ws("".join(corpus_pages)) if corpus_pages else ""
-        for i, point in enumerate(required):
-            if strip_ws(point) not in joined:
-                errs.append(f"required_points[{i}] 未能逐字命中定位页文本（忽略空白后仍不匹配）")
+        available = [(d, p) for _, d, p in in_corpus_locs if d in page_texts and p in page_texts[d]]
+        unshipped = [d for _, d, p in in_corpus_locs if d not in page_texts]
+        if unshipped:
+            # required_points 与 locator 不是一一对应，只要有一处定位页未随仓库发布，
+            # 就无法把失败归因到具体要点，因此整题跳过——而不是用残缺文本误报失败。
+            notes.append(
+                f"定位页未随仓库发布（{', '.join(sorted(set(unshipped)))}），跳过 required_points 逐字核对"
+            )
+        elif not available:
+            notes.append("无可用定位页文本，跳过 required_points 逐字核对")
+        else:
+            joined = strip_ws("".join(page_texts[d][p] for d, p in available))
+            for i, point in enumerate(required):
+                if strip_ws(point) not in joined:
+                    errs.append(f"required_points[{i}] 未能逐字命中定位页文本（忽略空白后仍不匹配）")
     if qtype == "external_only":
         for i, point in enumerate(required):
             if len(point) > 300:
@@ -221,14 +235,26 @@ def main():
     page_texts = load_page_texts()
 
     failures = []
+    skipped = []
     for q in questions:
-        errs = validate(q, manifest, page_texts)
+        notes = []
+        errs = validate(q, manifest, page_texts, notes)
         status = "PASS" if not errs else "FAIL"
         print(f"[{status}] {q.get('id', '???')} {q.get('type', '?')}: {q.get('question', '')[:40]}")
         for e in errs:
             print(f"       - {e}")
+        for n in notes:
+            print(f"       ~ {n}")
         if errs:
             failures.append(q.get("id"))
+        elif notes:
+            skipped.append(q.get("id"))
+
+    if skipped:
+        print(f"\n===== 未核对项（资产未随仓库发布）=====")
+        print(f"  跳过 {len(skipped)} 题: {', '.join(skipped)}")
+        print("  这些题依赖 in_repo=false 的语料（arXiv），CI 中不发布属预期；")
+        print("  本地有缓存时可完整核对：先跑 download_corpus.py 与 extract_text.py。")
 
     # ---- 配额 ----
     from collections import Counter

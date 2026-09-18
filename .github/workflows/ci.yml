@@ -93,18 +93,27 @@ jobs:
       - run: npm run build
 
   # 密钥扫描：凭证默认不进仓库的最后一道自动化防线。
-  # 注意：organization 拥有的仓库需要配置 GITLEAKS_LICENSE secret；
-  # 个人账号仓库无需 license。
+  # 固定 gitleaks 版本并直接执行 CLI，而不是用 action——首次运行用 action 时它报出
+  # 泄漏，而同一提交在本地（8.30.1 + 同一份 .gitleaks.toml）为 0 命中，判断是 action
+  # 自带版本较旧、不识别 `[[allowlists]]` 清单 schema 导致误报。固定版本后，
+  # CI 执行的命令与本地验证逐字一致，也免去 license 与权限的不确定性。
   secret-scan:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks (pinned)
+        run: |
+          mkdir -p /tmp/gl
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp/gl gitleaks
+          /tmp/gl/gitleaks version
+      - name: Scan full history
+        run: /tmp/gl/gitleaks git . --redact --no-banner --config .gitleaks.toml
 
   # 仓库契约：保护"证据"本身——评测语料、题集、配置模板与文档契约。
   # 这个作业守护的是作品集的可信度（指标页与截图都建立在这些资产之上），

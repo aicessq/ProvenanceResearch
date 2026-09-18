@@ -184,3 +184,12 @@
 - 理由：全局关闭规则或整目录放行会让真实凭证藏进语料时被一并放过；作用域收窄到"规则 + 文件"后，其他规则与其他文件照常扫描。
 - 验证：配置生效后全历史扫描 `no leaks found`；两次注入测试确认清单足够窄——在语料外注入假 key、以及在语料目录内非 RFC 6749 的文件注入，**都被正常报出**。工作区扫描剩余 4 处命中全部位于 `researcher/deep_research_system/.env`（真实凭证、已被忽略、永不推送），已提交内容为零命中。
 - 附带确认：CI 的 gitleaks-action 读取仓库根 `.gitleaks.toml`，因此该清单同时作用于本地与 CI。
+
+## 2026-09-18 首次 CI 运行的两个失败与修复
+
+- 背景：首次推送触发 CI（run #1），6 个作业中 **4 个通过**（knowledge_engine 干净安装测试、researcher 测试、两套前端构建），**2 个失败**。以下是失败原因与处置。
+- **失败一：题集校验在 CI 失败（q015/q022/q024/q038）**。原因：`validate_questions.py` 对"页级镜像缺失"**无条件报错**，而这 4 题依赖 arXiv 语料，该语料因许可未声明 `in_repo=false`、不随仓库发布——CI 中必然缺失。这是校验器的真实缺陷：它没区分"资产本就不发布"与"资产意外丢失"。
+- 处置（校验器语义修正）：`in_repo=true` 却缺镜像 → 仍报错；`in_repo=false` 缺镜像 → 记为**跳过**并在汇总显式列出（CI 下 4 题、附原因与本地补齐命令），本地有缓存时零跳过、完整核对。附带修正一处归因缺陷：`required_points` 与 locator 并非一一对应，只要该题有一处定位页未发布，就整题跳过逐字核对，避免用残缺文本误报失败。
+- **失败二：gitleaks 报出泄漏**，而同一提交在本地（8.30.1 + 同一份 `.gitleaks.toml`）为 **0 命中**。判断是 `gitleaks/gitleaks-action@v2` 自带二进制版本较旧，不识别 `[[allowlists]]` 清单 schema，导致允许清单被静默忽略。
+- 处置：改用**固定版本 CLI**——CI 内下载 `gitleaks_8.30.1_linux_x64.tar.gz`（资产名经 GitHub API 核实）并执行 `gitleaks git . --redact --no-banner --config .gitleaks.toml`，与本地验证逐字一致；同时消除 license 与 action 权限的不确定性。
+- 教训（写入 `docs/roadmap.md` 同义）：**"本地绿"不等于"CI 绿"**——差异来源正是"仓库里没有的东西"（被 gitignore 的资产、action 自带二进制的版本）。这正是首次运行 CI 的价值：它把"我以为验证过"变成"确实验证过"。
