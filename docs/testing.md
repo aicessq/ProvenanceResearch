@@ -123,3 +123,14 @@ providers 为新增顶层包（纯 httpx+pytest、无凭证、不联网，fake/r
 | researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `74 passed`（零改动） |
 
 evidence/tools 为新增顶层包（依赖仅 httpx+pytest，fake/recorded 响应，无凭证不联网）；CI 的 providers 作业扩为 `providers/tests/ evidence/tests/ tools/tests/ tests_bridge/` 四目录（71 例）。未跑 34 个 integration、真实云 smoke、前端构建（前端零改动）。
+
+## 2026-10-10 P3d（Agent Loop/Reader/引用闸门）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| agent（P3d 核心） | 仓库根 `knowledge_engine/.venv/bin/python -m pytest agent/tests -q` | `24 passed` |
+| 四新包合计 | 同上 venv，`-m pytest providers/tests evidence/tests tools/tests agent/tests tests_bridge -q` | `95 passed` |
+| knowledge_engine | 同上 venv，`-m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动） |
+| researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `74 passed`（零改动） |
+
+agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM 驱动真实 loop/executor/store）；CI 的 providers 作业现跑五目录（95 例）。SSE/HTTP/Redis 未做（P3d 后续小步），34 个 integration 与真实云 smoke 照旧未跑。
