@@ -10,11 +10,14 @@
 - 工具执行走 tools.ToolExecutor（白名单+参数校验+失败隔离）；
   产出登记 EvidenceStore；Reader RRF 融合 top8 → GENERATE → Citation Gate 验证。
 - 拒答条件：无登记引用、引用不足、闸门一次重生成后仍失败、无证据。
+- on_event 旁路与 trace 同构（事件名即 SSE v1 类型）；token_delta 记账
+  plan/generate/verify 三阶段；done/error 终态语义由上层（SSE 层）裁决。
 """
 
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import time
 from dataclasses import dataclass, field
@@ -35,10 +38,16 @@ class PlannerLLM(Protocol):
 
 
 class SemanticVerifier:
-    """Citation Gate 第 4 步：LLM 语义复检（可注入 fake）。"""
+    """Citation Gate 第 4 步：LLM 语义复检（可注入 fake）。
 
-    def __init__(self, llm: PlannerLLM) -> None:
+    验证调用计入共享 Budget（design.md §8：验证/重生成使用剩余任务预算），
+    并可选发 token_delta 事件（stage=verify）。
+    """
+
+    def __init__(self, llm: PlannerLLM, *, budget: Any = None, on_event: Any = None) -> None:
         self._llm = llm
+        self._budget = budget
+        self._on_event = on_event
 
     async def check(self, claim: Claim, evidence: list[Evidence]) -> bool:
         payload = {
@@ -50,6 +59,19 @@ class SemanticVerifier:
             [{"role": "user", "content": f"判断 claim 是否被证据支撑，只答 yes/no：{json.dumps(payload, ensure_ascii=False)}"}],
             {"stage": "verify"},
         )
+        if self._budget is not None:
+            self._budget.charge_tokens(result.prompt_tokens + result.completion_tokens)
+        if self._on_event is not None:
+            dispatched = self._on_event(
+                {
+                    "type": "token_delta",
+                    "stage": "verify",
+                    "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.completion_tokens,
+                }
+            )
+            if inspect.isawaitable(dispatched):
+                await dispatched
         return "yes" in result.text.lower()
 
 
@@ -84,6 +106,7 @@ class AgentLoop:
         store: EvidenceStore,
         gate: CitationGate,
         budget: Budget | None = None,
+        on_event: Any = None,
     ) -> None:
         self._planner = planner
         self._writer = writer
@@ -91,6 +114,15 @@ class AgentLoop:
         self._store = store
         self._gate = gate
         self._budget = budget or Budget()
+        # 事件 sink（SSE/trace 旁路）：可为同步或异步 callable；事件与 trace 同构。
+        self._on_event = on_event
+
+    async def _dispatch(self, entry: dict) -> None:
+        if self._on_event is None:
+            return
+        dispatched = self._on_event(dict(entry))
+        if inspect.isawaitable(dispatched):
+            await dispatched
 
     async def run(self, question: str) -> AgentAnswer:
         budget = self._budget
@@ -99,14 +131,18 @@ class AgentLoop:
         registered_before = {ev.citation_id for ev in self._store.all()}
         stop_reason: StopReason | None = None
 
-        trace.append({"type": "meta", "question": question})
+        async def emit(entry: dict) -> None:
+            trace.append(entry)
+            await self._dispatch(entry)
+
+        await emit({"type": "meta", "question": question})
 
         # ---- 有界检索循环 ----
         while budget.remaining_rounds() > 0 and stop_reason is None:
             budget.begin_round()
-            trace.append({"type": "plan", "round": budget.rounds})
+            await emit({"type": "plan", "round": budget.rounds})
 
-            plan = await self._call_planner(question)
+            plan = await self._call_planner(question, emit)
             tool_calls = plan.get("tool_calls") or []
             if not tool_calls:
                 stop_reason = StopReason.SUFFICIENT_EVIDENCE
@@ -121,17 +157,20 @@ class AgentLoop:
                 name = str(call.get("tool", ""))
                 args = dict(call.get("args") or {})
                 key = _call_key(name, args)
-                trace.append({"type": "tool_call", "tool": name, "args": args})
+                await emit({"type": "tool_call", "tool": name, "args": args})
 
                 budget.charge_tool_call()
                 result: ToolResult = await self._executor.execute(name, **args)
-                trace.append(
+                await emit(
                     {
                         "type": "tool_result",
                         "tool": name,
                         "status": result.status,
                         "call_id": result.call_id,
                         "error": result.error.code if result.error else "",
+                        "provider": result.meta.provider,
+                        "coverage": result.meta.coverage,
+                        "latency_ms": result.meta.latency_ms,
                     }
                 )
 
@@ -140,20 +179,20 @@ class AgentLoop:
                 ]
                 for ev in new_evidence:
                     registered_before.add(ev.citation_id)
-                    trace.append({"type": "evidence", "citation_id": ev.citation_id})
+                    await emit({"type": "evidence", "citation_id": ev.citation_id, "call_id": result.call_id})
 
                 if new_evidence:
                     made_progress = True
                 elif key in seen_call_keys:
                     # 重复调用且无新 Evidence → 不无限重试
-                    trace.append({"type": "error", "reason": "no_progress_repeat", "tool": name})
+                    await emit({"type": "error", "reason": "no_progress_repeat", "tool": name})
                     stop_reason = StopReason.NO_PROGRESS
                     break
                 seen_call_keys.add(key)
 
             if stop_reason is not None:
                 break
-            trace.append({"type": "plan", "round": budget.rounds, "progress": made_progress})
+            await emit({"type": "plan", "round": budget.rounds, "progress": made_progress})
 
         if stop_reason is None:
             stop_reason = StopReason.SUFFICIENT_EVIDENCE
@@ -163,7 +202,7 @@ class AgentLoop:
 
         # ---- 无证据 → 拒答 ----
         if not evidence_all:
-            trace.append({"type": "done", "status": "refused"})
+            await emit({"type": "done", "status": "refused"})
             return AgentAnswer(
                 status="refused",
                 stop_reason=stop_reason,
@@ -178,7 +217,7 @@ class AgentLoop:
         for attempt in range(2):  # 首次 + 一次重生成
             budget_check = budget.exceeded()
             if budget_check is not None:
-                trace.append({"type": "error", "reason": "budget_exhausted_before_generate"})
+                await emit({"type": "error", "reason": "budget_exhausted_before_generate"})
                 return AgentAnswer(
                     status="refused",
                     stop_reason=budget_check,
@@ -188,16 +227,16 @@ class AgentLoop:
                     budget_report=budget.report(),
                 )
             try:
-                answer_text, claims = await self._call_writer(question, top, attempt)
+                answer_text, claims = await self._call_writer(question, top, attempt, emit)
             except (ValueError, KeyError) as exc:
                 # writer 输出非法（坏 JSON/缺 claims）视为该轮验证失败，走重生成或拒答
-                trace.append({"type": "error", "reason": "invalid_writer_output", "attempt": attempt, "detail": str(exc)[:120]})
+                await emit({"type": "error", "reason": "invalid_writer_output", "attempt": attempt, "detail": str(exc)[:120]})
                 continue
-            trace.append({"type": "citation", "claims": len(claims), "attempt": attempt})
+            await emit({"type": "citation", "claims": len(claims), "attempt": attempt})
             report = await self._gate.verify(claims, self._store)
             if report.passed:
                 used = tuple(sorted({cid for c in claims for cid in c.citations}))
-                trace.append({"type": "done", "status": "answered"})
+                await emit({"type": "done", "status": "answered"})
                 return AgentAnswer(
                     status="answered",
                     stop_reason=StopReason.SUFFICIENT_EVIDENCE,
@@ -208,7 +247,7 @@ class AgentLoop:
                     trace=tuple(trace),
                     budget_report=budget.report(),
                 )
-            trace.append(
+            await emit(
                 {
                     "type": "error",
                     "reason": "citation_gate_failed",
@@ -218,7 +257,7 @@ class AgentLoop:
             )
 
         # 一次重生成后仍失败 → 拒答
-        trace.append({"type": "done", "status": "refused"})
+        await emit({"type": "done", "status": "refused"})
         return AgentAnswer(
             status="refused",
             stop_reason=StopReason.CITATION_GATE_FAILED,
@@ -240,7 +279,7 @@ class AgentLoop:
                 channels["web"].append(ev)
         return channels
 
-    async def _call_planner(self, question: str) -> dict:
+    async def _call_planner(self, question: str, emit: Any) -> dict:
         observations = [
             {"citation_id": ev.citation_id, "source_type": ev.source_type, "text": (ev.raw_text or "")[:200]}
             for ev in self._store.all()
@@ -257,12 +296,20 @@ class AgentLoop:
             {"stage": "plan", "remaining_tool_calls": self._budget.remaining_tool_calls()},
         )
         self._budget.charge_tokens(result.prompt_tokens + result.completion_tokens)
+        await emit(
+            {
+                "type": "token_delta",
+                "stage": "plan",
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+            }
+        )
         try:
             return json.loads(result.text)
         except json.JSONDecodeError:
             return {"tool_calls": []}
 
-    async def _call_writer(self, question: str, top: list[Evidence], attempt: int) -> tuple[str, list[Claim]]:
+    async def _call_writer(self, question: str, top: list[Evidence], attempt: int, emit: Any) -> tuple[str, list[Claim]]:
         payload = {
             "question": question,
             "evidence": [
@@ -286,6 +333,15 @@ class AgentLoop:
             {"stage": "generate", "attempt": attempt},
         )
         self._budget.charge_tokens(result.prompt_tokens + result.completion_tokens)
+        await emit(
+            {
+                "type": "token_delta",
+                "stage": "generate",
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "attempt": attempt,
+            }
+        )
         data = json.loads(result.text)
         claims = parse_claims(data)
         return str(data.get("answer") or ""), claims
