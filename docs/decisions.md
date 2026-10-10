@@ -193,3 +193,31 @@
 - **失败二：gitleaks 报出泄漏**，而同一提交在本地（8.30.1 + 同一份 `.gitleaks.toml`）为 **0 命中**。判断是 `gitleaks/gitleaks-action@v2` 自带二进制版本较旧，不识别 `[[allowlists]]` 清单 schema，导致允许清单被静默忽略。
 - 处置：改用**固定版本 CLI**——CI 内下载 `gitleaks_8.30.1_linux_x64.tar.gz`（资产名经 GitHub API 核实）并执行 `gitleaks git . --redact --no-banner --config .gitleaks.toml`，与本地验证逐字一致；同时消除 license 与 action 权限的不确定性。
 - 教训（写入 `docs/roadmap.md` 同义）：**"本地绿"不等于"CI 绿"**——差异来源正是"仓库里没有的东西"（被 gitignore 的资产、action 自带二进制的版本）。这正是首次运行 CI 的价值：它把"我以为验证过"变成"确实验证过"。
+
+## 2026-09-22 架构拷问：部署边界定为单机单 researcher + KE 多进程
+
+- 决定：researcher（DRS）保持单实例；knowledge_engine worker 以 Celery 多进程（prefork）为默认形态；「researcher 多实例 / 多机水平扩展」记为**非目标**，与 design §11 多租户非目标一致。不建分布式限流、分布式锁、跨实例熔断状态共享；arXiv 3 秒间隔用 DRS 单进程 semaphore 落实。
+- 理由：产品是本机单用户自托管（design §1）；KE 多进程并发正确性已由 PG fencing（`SKIP LOCKED` + advisory lock + fencing token）零成本保障；researcher 水平扩展需把 `_tasks/_running/_subscribers/取消句柄` 全部内存态外移（等于重写任务执行层），并推翻 P3d「旧任务生命周期与 SSE 回归保持」前置约束，单用户下收益为零。KE 多容器与多进程的实际差距小（P3b 做完心跳/孤立点清理后只差存储层），故多容器维度也暂不承诺。
+- 已知接受的代价：DRS 进程死亡 → 在跑任务死亡，重启清孤儿（RUNNING→FAILED）不恢复；是否补恢复机制随扩展功能处置（审计 Q7，待确认）。
+- 过程：本轮为交互式架构拷问（grilling），33 项发现与逐题记录见 `docs/architecture-audit.md`。
+
+## 2026-09-22 KE 任务投递语义：at-least-once + 双队列，恢复与计时器心跳捆绑
+
+- 决定（记为 P3b 落实时的既定设计，本轮零代码改动）：`task_acks_late=True` + `task_reject_on_worker_lost=True`；拆 `ingest`（重）与 `control`（recovery/reindex，轻）双队列；`TASK_AUTO_RECOVER_PROCESSING` 的开启与 P3b「计时器心跳」**捆绑交付**——心跳先行，之后 PROCESSING 过时任务才改为重派（fencing 防旧 worker 发布），落地前维持 fail-fast。
+- 理由：现状 `task_acks_late=False` 意味着硬杀即丢消息，崩溃 = 任务判死 + 已发生的云 OCR/embedding 费用白烧；而 claim/fencing 体系本就为幂等重派设计，at-least-once 几乎免费。唯一风险是现心跳为「阶段间调用」：活着的长阶段任务与死任务不可区分，提前开自动恢复会双跑双花（P3b 引入长云调用后风险翻倍），故恢复必须等计时器心跳。双队列防 recovery 扫描被长 ingest 堵死。
+- 验收（P3b 时）：硬杀 worker 不丢消息；重派幂等；旧 worker 失去租约后不能发布版本；PROCESSING 自动恢复仅在计时器心跳落地后开启。
+
+## 2026-09-23 目标架构图拆分为系统拓扑与 Agentic 运行时控制流
+
+- 问题：原 `architecture-target.drawio` 把 `Agentic 有界循环` 压缩成单个组件，连线主要表达服务之间的调用关系，视觉上容易被误读为固定的 `检索 → 融合 → 生成` 流水线，无法证明目标结构具有 Agentic RAG 的观察与重规划闭环。
+- 决定：保留 `architecture-target.drawio`，明确其职责为**目标系统拓扑图**；新增 `architecture-target-agentic-rag-runtime.drawio`，专门表达 Planner 每轮依据 Question、Observations、Evidence gaps 与剩余预算动态选择 `0..N` 个工具或停止，以及 `ToolResult → Evidence → 充分性判断 → OBSERVE → 重规划` 的反馈回路。
+- 边界：Agent 只决定下一动作；工具白名单、JSON Schema、出站授权、预算、deadline、取消、RRF、引用验证和终止原因仍由确定性代码执行。工具顺序不写死，但循环有界，不把“Agentic”解释成任意工具、任意网络访问或无界自治。
+- 理由：部署拓扑和运行时决策循环回答不同问题，强行合成一图会掩盖最关键的控制流。分图后既能看清两套进程及基础设施边界，也能直接看到 Agentic 与固定 RAG 的结构分界。
+- 状态：本条只修正文档表达，不代表 P3d 已实现；实现验收仍以 `docs/roadmap.md` 的 fake LLM 驱动真实 graph、追加检索、停止、预算与引用闸门测试为准。
+
+## 2026-10-10 采纳 P3-P5 重排版执行计划（新增 P2.5 与硬化轮，P3b 后移）
+
+- 决定：以用户批准的《下一阶段迭代计划（P3-P5 重排版）》（`docs/execution-plan.md`）作为下一轮执行顺序：**P2.5 安全修复 → P3a Core Adapter → P3c 文本工具 → P3d Agentic+引用闸门+SSE → P4 评测 → P5 Demo UI → P3b OCR/Vision → 硬化轮**。相对原 roadmap 的变化：新增 P2.5（安全与基础修复）与硬化轮（JWT/限流/观测/Compose）两个阶段；P3c 改为文本先行、不再以 P3b 溯源稳定为前置（Evidence v2 的 bbox 字段留空占位）；P4 提前到 P5 之前并先用 15–20 个代表问题建立 baseline；P3b 多模态后移到 P5 之后。
+- 保留：P0–P5 各阶段的能力目标与验收标准不放松；Agent 预算默认值（3 轮/12 次工具/20000 token/180s）、RRF k=60 与 top-8、全云模型契约、出站双闸、"mock 仅限测试"均不变。
+- 理由：优先造出"提问→检索→证据→引用/拒答"的完整文本闭环（Vertical Slice），避免先陷入 P3b 多模态泥潭；前半段完成到 P4/P5 第一版即达到作品集展示水平，OCR/Vision 与硬化属后续提升。执行节奏改为**每完成一小部分即提交一次 git**（用户 2026-10-10 要求）。
+- 顺序裁决：计划正文 Phase 5/6 编号（P3b 在 P5 前）与其"执行优先级总结"及结尾段落（P5 在 P3b 前）不一致，按总结与结尾段落取 **P5 先于 P3b**，已在 `docs/execution-plan.md` 文首标注。
