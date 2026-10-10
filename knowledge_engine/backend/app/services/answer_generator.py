@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.services.llm_service import LLMService, LLMServiceError
+from app.services.llm_service import LLMService, LLMServiceError, ProviderUnavailableError
 
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "answer_generator.md"
 INSUFFICIENT_EVIDENCE_MESSAGE = "当前知识库未检索到明确依据，暂无法给出确定答案。"
@@ -57,7 +57,7 @@ class AnswerGenerationResult:
     citations: list[AnswerCitation] = field(default_factory=list)
     confidence: float = 0.0
     evidence_status: str = "insufficient"
-    model_name: str = "deterministic-evidence-summarizer"
+    model_name: str = "none"
 
 
 class AnswerGenerator:
@@ -82,8 +82,9 @@ class AnswerGenerator:
 
         try:
             return self._generate_with_llm(query=normalized_query, evidence_contexts=evidence_contexts)
-        except LLMServiceError:
-            return self._generate_deterministic(query=normalized_query, evidence_contexts=evidence_contexts)
+        except LLMServiceError as exc:
+            # P2.5-0.2：LLM 失败不得回退本地抽取答案（fake success），由上层决定 retry/fallback/refusal
+            raise ProviderUnavailableError("LLM 服务不可用，无法生成答案") from exc
 
     def _generate_with_llm(self, *, query: str, evidence_contexts: list[EvidenceContext]) -> AnswerGenerationResult:
         """优先尝试真实 LLM 生成；失败时由上层回退。"""
@@ -103,47 +104,6 @@ class AnswerGenerator:
             confidence=float(payload.get("confidence", 0.5)),
             evidence_status=str(payload.get("evidence_status") or "partial"),
             model_name=response.model,
-        )
-
-    def _generate_deterministic(self, *, query: str, evidence_contexts: list[EvidenceContext]) -> AnswerGenerationResult:
-        """在未配置真实 LLM 时，使用可解释的本地保守生成。"""
-        top_contexts = evidence_contexts[:3]
-        answer_parts = [f"基于当前检索到的资料，关于“{query}”可参考以下证据："]
-        citations: list[AnswerCitation] = []
-
-        for index, context in enumerate(top_contexts, start=1):
-            snippet = _trim_text(context.chunk_text, limit=120)
-            location = _format_location(context)
-            answer_parts.append(f"{index}. 《{context.doc_title}》{location}提到：{snippet}")
-            citations.append(
-                AnswerCitation(
-                    chunk_id=context.chunk_id,
-                    doc_title=context.doc_title,
-                    page_start=context.page_start,
-                    page_end=context.page_end,
-                    chapter=context.chapter,
-                    section=context.section,
-                    article_no=context.article_no,
-                    quote=snippet,
-                )
-            )
-
-        if not citations:
-            return AnswerGenerationResult(
-                answer=INSUFFICIENT_EVIDENCE_MESSAGE,
-                citations=[],
-                confidence=0.1,
-                evidence_status="insufficient",
-            )
-
-        answer_parts.append("如果你需要，我可以继续基于这些证据整理成更精炼的法规解读、标准要求归纳或修复建议。")
-        evidence_status = "grounded" if len(citations) >= 2 else "partial"
-        confidence = 0.82 if evidence_status == "grounded" else 0.62
-        return AnswerGenerationResult(
-            answer="\n".join(answer_parts),
-            citations=citations,
-            confidence=confidence,
-            evidence_status=evidence_status,
         )
 
     def _build_llm_user_prompt(self, *, query: str, evidence_contexts: list[EvidenceContext]) -> str:
@@ -179,31 +139,6 @@ class AnswerGenerator:
             article_no=_to_str_or_none(payload.get("article_no")),
             quote=str(payload.get("quote") or ""),
         )
-
-
-def _format_location(context: EvidenceContext) -> str:
-    """格式化引用位置。"""
-    parts: list[str] = []
-    if context.chapter:
-        parts.append(context.chapter)
-    if context.section:
-        parts.append(context.section)
-    if context.article_no:
-        parts.append(context.article_no)
-    if context.page_start is not None:
-        if context.page_end is not None and context.page_end != context.page_start:
-            parts.append(f"第{context.page_start}-{context.page_end}页")
-        else:
-            parts.append(f"第{context.page_start}页")
-    return f"（{' / '.join(parts)}）" if parts else ""
-
-
-def _trim_text(value: str, *, limit: int) -> str:
-    """截断过长文本，便于回答展示。"""
-    normalized = " ".join(value.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
 
 
 def _to_int_or_none(value: object) -> int | None:

@@ -23,6 +23,14 @@ class LLMServiceError(RuntimeError):
     """LLM 服务异常。"""
 
 
+class ProviderUnavailableError(LLMServiceError):
+    """上游模型服务不可用（缺配置/调用失败/响应非法）。
+
+    P2.5-0.2：禁止用本地抽取、mock 结果等 fake success 兜底，
+    统一抛本异常，由上层决定 retry / fallback / refusal。
+    """
+
+
 @dataclass(slots=True)
 class LLMResponse:
     """统一的 LLM 文本响应。"""

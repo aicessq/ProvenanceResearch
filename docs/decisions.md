@@ -228,3 +228,11 @@
 - 替代：原实现直接把用户提交的 `api_base` 拼上 `/chat/completions` 出站，等于服务端任意 URL 请求代理（可探内网/metadata），且 api_key 随之外送。
 - 理由：公开仓库的模型测试接口是最容易被指出的可信度缺口；"精确主机 allowlist + scheme 收紧"比黑名单式 IP 过滤更难绕过（DNS rebinding 对精确主机名无效）。自定义代理/自建端点暂不支持，待 P5 前端配置有出站授权后按 `CLOUD_DATA_APPROVALS_JSON` fingerprint 机制放开。
 - 验收：新增 `tests/test_endpoint_guard.py`——localhost/127.0.0.1/10.x/192.168.x/172.16.x/169.254.169.254/IP 字面量/file:///http/非允许 provider/userinfo 伪装/非 443 端口全部拒绝；路由级断言非法目标不发起任何出站请求（monkeypatch httpx 为断言失败）。researcher 65 passed（47 基线 + 18 新增）。
+
+## 2026-10-10 P2.5-0.2 删除 fake success：统一 ProviderUnavailableError
+
+- 决定：删除两处伪造成功路径——researcher `SearchService` 在缺 TAVILY_API_KEY 或 Tavily 调用失败时不再返回 `example.com` mock 结果（连同 `last_mode`/`search_mode="mock"` 机制一并删除，schema 默认值改 "real"）；KE `AnswerGenerator` 在 LLM 失败/输出非 JSON 时不再回退本地抽取答案（`_generate_deterministic` 及其孤儿 helper 一并删除），KE query API 将 `ProviderUnavailableError` 映射为 503 `provider_unavailable`。统一由 `ProviderUnavailableError` 上抛，retry/fallback/refusal 留给上层（P3d 引入）。
+- 替代：原行为把"provider 挂了"伪装成"搜到了 3 条结果/生成了有据答案"，直接污染 provenance 链条与评测基线——这是公开仓库可信度的最大污点。
+- 理由：Evidence-grounded 系统的前提是证据为真；mock 结果与本地抽取答案都属于无 provenance 的伪证据。AGENTS.md 已有"缺云配置显式失败、不得静默降级"约束，本轮把生产路径落实到该约束。eval 逐条已有 try/except 记录 error_message，异常传播语义正确。
+- 测试迁移记录：KE `test_answer_generator` 原第 2 例断言本地抽取答案（"基于当前检索到的资料"），正是要删除的行为——改写为 4 例：无证据拒答不变、LLM 失败抛 `ProviderUnavailableError`、stub LLM 走真实生成路径、LLM 输出非 JSON 抛异常。researcher 新增 `test_search_service` 3 例（缺 key/调用失败抛异常、成功返回真实结果且无 mock URL）。
+- 验收：KE 98 passed（原 96 + 测试改写净增 2）、researcher 68 passed（原 47 基线 + 0.1 的 18 + 本轮 3）；两套基线原有行为测试未被破坏。

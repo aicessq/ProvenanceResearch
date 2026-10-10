@@ -125,5 +125,6 @@ class SearcherAgent(BaseAgent):
 
         # Phase 3: LLM synthesis of real results
         result = await super().run(state, on_event=on_event)
-        result["search_mode"] = self._search_service.last_mode
+        # P2.5-0.2 后检索只走真实 Tavily（失败即抛），mock 模式已删除
+        result["search_mode"] = "real"
         return result

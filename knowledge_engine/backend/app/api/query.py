@@ -27,6 +27,7 @@ from app.schemas.query import (
     SafetyGuardResponse,
 )
 from app.services.answer_generator import AnswerCitation, EvidenceContext
+from app.services.llm_service import ProviderUnavailableError
 from app.services.query_service import QueryService
 from app.services.retriever import HybridRetriever
 
@@ -131,6 +132,8 @@ def answer_query(
         prepared = result.preparation
     except ValueError as exc:
         raise _bad_request(str(exc)) from exc
+    except ProviderUnavailableError as exc:
+        raise _provider_unavailable(str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -236,6 +239,20 @@ def _bad_request(message: str) -> HTTPException:
         detail={
             "error": {
                 "code": "invalid_request",
+                "message": message,
+                "details": {},
+            }
+        },
+    )
+
+
+def _provider_unavailable(message: str) -> HTTPException:
+    """模型服务不可用：显式失败，不返回伪答案（P2.5-0.2）。"""
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error": {
+                "code": "provider_unavailable",
                 "message": message,
                 "details": {},
             }

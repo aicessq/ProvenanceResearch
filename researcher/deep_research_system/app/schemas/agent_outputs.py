@@ -48,7 +48,7 @@ class SearcherOutput(BaseModel):
     sub_question_id: str = ""
     queries_used: list[str] = Field(default_factory=list)
     sources: list[SearchSource] = Field(default_factory=list)
-    search_mode: str = "mock"  # "real" | "mock"
+    search_mode: str = "real"  # P2.5-0.2 后仅 "real"（mock 已删除）
     insufficient_evidence: bool = False
     insufficient_evidence_reason: str = ""
 
