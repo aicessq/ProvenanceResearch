@@ -68,10 +68,10 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
 
-  # providers 云适配层契约测试（P3a）。
+  # providers 云适配层契约测试（P3a）+ evidence/tools 契约与 tests_bridge（P3c）。
   # 只依赖 httpx + pytest；fake/recorded 响应，不需要任何凭证。
   providers-tests:
-    name: providers tests
+    name: providers + evidence + tools tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip httpx==0.28.1 pytest==9.1.1
       - name: Run tests
-        run: python -m pytest providers/tests/ -q
+        run: python -m pytest providers/tests/ evidence/tests tools/tests tests_bridge/ -q
 
   # 两套旧前端各自构建。二者均在本机验证通过（见 docs/testing.md），
   # 因此可以作为门禁；它们不会长期保留——P5 会重写为统一前端。
