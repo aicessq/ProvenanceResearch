@@ -244,3 +244,11 @@
 - 理由：key routing 的可信度建立在"谁的 key 只走谁的端点"上；宽松兜底让 SSRF 修复（0.1）形同虚设（合法 host 校验过了，但 key 可以搭错车）。显式失败（None/异常）交给上层处理，与 0.2 的 ProviderUnavailableError 语义一致。
 - 测试迁移记录：新增 `tests/test_key_binding.py` 6 例——自身 key 缺失时返回 None 而非他 slot key、只用自身绑定 key、路由可用性忽略他 slot key、端点解析永不取他 slot base、优先自身绑定、全无绑定时抛异常。原有 key_pool/router 测试未改动（断言的都是本就正确的行为）。
 - 验收：researcher 74 passed（47 基线 + 0.1 的 18 + 0.2 的 3 + 本轮 6）。
+
+## 2026-10-10 P3a：providers 云适配层（一真一假 + 错误六分类 + EmbeddingIdentity）
+
+- 决定：新增顶层 `providers/` 包作为所有 AI 能力的统一云接口——`errors.py` 定义六类稳定错误码（CONFIG_MISSING/AUTH_FAILED/RATE_LIMIT/SERVER_ERROR/TIMEOUT/INVALID_RESPONSE）与 `ProviderError`（携带 retryable），上层只按错误码决策；`llm/` 落地统一 `generate(messages, metadata)` 协议 + **一个真实 provider（DeepSeek，OpenAI 兼容）+ 一个 fake provider**（脚本化，仅限测试）；`embedding/` 落地 `EmbeddingIdentity`（provider/model/dimension/preprocess_version 四元组）与 `CollectionBinding`（一个 collection 只属一个 identity，改绑/越权访问拒绝）；`reranker/`、`ocr/`、`vision/` 只建接口位，实现随 P3c/P3b 接入。
+- 实现取舍：DeepSeek adapter 完整实现 timeout/429/5xx/timeout 重试（指数退避）与响应结构校验；`httpx.MockTransport` 做 fake 传输，契约测试无凭证、不联网。api_key 只发配置绑定 host、禁重定向、base_url 强制 https（延续 P2.5 与 2026-09-18 出站纪律）。真实云 smoke 照旧不进普通 PR。
+- 替代：原两套系统各自裸 httpx 调用（researcher `LLMClient`、KE `LLMService`），错误语义不一致且无统一分类；它们暂保留为旧路径，接入迁移在后续阶段进行，本轮零业务代码改动。
+- 理由：P3c 的工具与 P3d 的 Agent 都要按"错误类别"决定 retry/fallback/refusal，没有稳定错误码就只能解析各家错误文本；EmbeddingIdentity 提前立住是为了索引迁移/回滚（换模型必换 collection）从第一天就有可测契约。
+- 验收：`providers/tests/` 25 例全绿——401/403→AUTH_FAILED 且不重试、429→RATE_LIMIT 重试至成功或耗尽、5xx→SERVER_ERROR 重试、timeout→TIMEOUT 重试、malformed response（坏 JSON/空 choices/缺 content/非字符串 content）→INVALID_RESPONSE 且不重试、缺配置零出站、http base_url 拒绝、密钥只发绑定 host；identity 四元组校验、维度不符拒绝、collection 改绑/越权拒绝、fake embedding 确定性。CI 新增 `providers-tests` 作业（httpx+pytest 钉版，无 secret）。
