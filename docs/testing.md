@@ -134,3 +134,14 @@ evidence/tools 为新增顶层包（依赖仅 httpx+pytest，fake/recorded 响�
 | researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `74 passed`（零改动） |
 
 agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM 驱动真实 loop/executor/store）；CI 的 providers 作业现跑五目录（95 例）。SSE/HTTP/Redis 未做（P3d 后续小步），34 个 integration 与真实云 smoke 照旧未跑。
+
+## 2026-10-10 P3d 后半（SSE v1 + /api/v1 任务接口）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 四新包+bridge（含 agent 事件 sink） | 仓库根 `knowledge_engine/.venv/bin/python -m pytest providers/tests evidence/tests tools/tests agent/tests tests_bridge -q` | `100 passed` |
+| 同上（conda multiagent / Python 3.13 复核） | 仓库根 `…/multiagent/bin/python3 -m pytest agent/tests providers/tests evidence/tests tools/tests tests_bridge/ -q` | `100 passed` |
+| researcher（SSE v1 20 + agentic 桥 10 + /api/v1 9 新增） | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `113 passed` |
+| knowledge_engine | 从仓库根执行 `knowledge_engine/.venv/bin/python -m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动，回归确认） |
+
+计数变化：新契约 95 → 100（agent 增事件 sink 5 例）；researcher 74 → 113（+39：SSE v1 语义 20 例——同一套测试跑内存与 fake-Redis 两个后端、agentic 桥 10 例、/api/v1 HTTP 契约 9 例）。SSE 语义覆盖顺序、终态唯一、完成订阅竞态、Last-Event-ID 重连回放、Redis 故障降级；HTTP 层覆盖 problem+json、旧接口错误形状逐字回归与 OpenAPI 路径检查。全部 fake/recorded（fake LLM + MockTransport + fake Redis 命令），无凭证不联网；34 个 integration、真实云 smoke、前端构建照旧未跑。CI 两套既有作业命令不变即覆盖新测试（researcher 作业现 113 例；providers 作业五目录现 100 例）。
