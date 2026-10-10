@@ -35,6 +35,12 @@ CAPABILITIES: dict[str, str] = {
 SOURCE_KEYS = ("tavily",)
 SECRET_NAME_PREFIX = "cloud_config:"
 
+# 搜索来源的出站授权预置（能力 ID → provider/固定端点；模型为空）
+SOURCE_OUTBOUND: dict[str, tuple[str, str, str, str]] = {
+    "search:web": ("search:web", "tavily", "https://api.tavily.com", ""),
+    "search:arxiv": ("search:arxiv", "arxiv", "https://export.arxiv.org", ""),
+}
+
 
 class ConfigValidationError(Exception):
     """配置非法（端点不允许/字段缺失等）：调用方映射 problem+json，旧值保持不变。"""
@@ -59,7 +65,11 @@ class CloudConfigService:
     ) -> None:
         self._env = environ if environ is not None else dict(os.environ)
         self._vault = vault if vault is not None else SecretVault(self._env.get("CONFIG_ENCRYPTION_KEY"))
-        self._overrides_path = Path(overrides_path or Path(__file__).resolve().parents[2] / "data" / "cloud_config_overrides.json")
+        self._overrides_path = Path(
+            overrides_path
+            or os.environ.get("CLOUD_CONFIG_OVERRIDES_PATH")
+            or Path(__file__).resolve().parents[2] / "data" / "cloud_config_overrides.json"
+        )
         self._gate = OutboundGate.from_env(self._env)
         runtime = self._read_overrides().get("outbound_approvals") or {}
         self._gate.approvals.update({str(k): str(v) for k, v in runtime.items()})
@@ -132,19 +142,23 @@ class CloudConfigService:
 
     def outbound_view(self) -> dict[str, Any]:
         caps: dict[str, Any] = {}
-        for cap in CAPABILITIES:
-            cfg = self.resolve(cap)
-            provider = cfg["provider"] or "unset"
-            endpoint = cfg["base_url"] or "unset"
-            fingerprint = self._gate.expected_fingerprint(cap, provider, endpoint, cfg["model"])
-            allowed, reason = self._gate.check(cap, provider=provider, endpoint=endpoint, model=cfg["model"])
+        for cap in list(CAPABILITIES) + list(SOURCE_OUTBOUND):
+            if cap in SOURCE_OUTBOUND:
+                _, provider, endpoint, model = SOURCE_OUTBOUND[cap]
+            else:
+                cfg = self.resolve(cap)
+                provider = cfg["provider"] or "unset"
+                endpoint = cfg["base_url"] or "unset"
+                model = cfg["model"]
+            fingerprint = self._gate.expected_fingerprint(cap, provider, endpoint, model)
+            allowed, reason = self._gate.check(cap, provider=provider, endpoint=endpoint, model=model)
             caps[cap] = {
                 "fingerprint": fingerprint,
                 "approved": allowed,
                 "reason": reason,
                 "provider": provider,
                 "endpoint": endpoint,
-                "model": cfg["model"],
+                "model": model,
             }
         return {**self._gate.to_view(), "capabilities": caps}
 
@@ -219,14 +233,18 @@ class CloudConfigService:
     # ---------- 出站授权 ----------
 
     def approve_outbound(self, capability: str) -> dict[str, Any]:
-        if capability not in CAPABILITIES:
+        if capability in SOURCE_OUTBOUND:
+            _, provider, endpoint, model = SOURCE_OUTBOUND[capability]
+        elif capability in CAPABILITIES:
+            cfg = self.resolve(capability)
+            provider = cfg["provider"]
+            endpoint = cfg["base_url"] or "unset"
+            model = cfg["model"]
+            if not provider:
+                raise ConfigValidationError("invalid_params", f"{capability} 未配置 provider，无法计算授权指纹")
+        else:
             raise ConfigValidationError("unknown_capability", f"未知能力: {capability}")
-        cfg = self.resolve(capability)
-        if not cfg["provider"]:
-            raise ConfigValidationError("invalid_params", f"{capability} 未配置 provider，无法计算授权指纹")
-        fingerprint = self._gate.approve(
-            capability, cfg["provider"], cfg["base_url"] or "unset", cfg["model"]
-        )
+        fingerprint = self._gate.approve(capability, provider, endpoint, model)
         store = self._read_overrides()
         approvals = store.get("outbound_approvals") or {}
         approvals[capability] = fingerprint
@@ -236,5 +254,8 @@ class CloudConfigService:
         return self.outbound_view()["capabilities"][capability]
 
     def check_outbound(self, capability: str) -> tuple[bool, str]:
+        if capability in SOURCE_OUTBOUND:
+            _, provider, endpoint, model = SOURCE_OUTBOUND[capability]
+            return self._gate.check(capability, provider=provider, endpoint=endpoint, model=model)
         cfg = self.resolve(capability)
         return self._gate.check(capability, provider=cfg["provider"] or "unset", endpoint=cfg["base_url"] or "unset", model=cfg["model"])

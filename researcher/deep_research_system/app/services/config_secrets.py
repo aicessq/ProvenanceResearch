@@ -47,7 +47,11 @@ class SecretVault:
 
     def __init__(self, master_key_raw: str | None = None, *, persist_path: str | Path | None = None) -> None:
         self._master_key_raw = (master_key_raw if master_key_raw is not None else os.environ.get("CONFIG_ENCRYPTION_KEY")) or ""
-        self._path = Path(persist_path or Path(__file__).resolve().parents[2] / "data" / "cloud_secrets.json")
+        self._path = Path(
+            persist_path
+            or os.environ.get("CLOUD_SECRETS_PATH")
+            or Path(__file__).resolve().parents[2] / "data" / "cloud_secrets.json"
+        )
         self._fernet: Fernet | None = None
         if self._master_key_raw.strip():
             # 启动即校验：格式/强度不符直接抛错（"拒绝启动该能力"），不落明文

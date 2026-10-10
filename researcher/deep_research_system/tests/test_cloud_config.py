@@ -154,3 +154,48 @@ def test_approve_outbound_persists_runtime_approval(tmp_path) -> None:
     )
     reopened._gate.upload_allowed = True
     assert reopened.check_outbound("llm") == (True, "approved")
+
+
+def test_source_outbound_rows_and_approve(tmp_path) -> None:
+    service = make_service(tmp_path, env={"CONFIG_ENCRYPTION_KEY": GOOD_KEY})
+    service._gate.upload_allowed = True
+    view = service.outbound_view()["capabilities"]
+    assert "search:web" in view and "search:arxiv" in view  # 搜索来源外送查询也在授权面
+    assert view["search:web"]["approved"] is False
+
+    approved = service.approve_outbound("search:web")
+    assert approved["approved"] is True
+    assert service.check_outbound("search:web") == (True, "approved")
+    assert service.check_outbound("search:arxiv") == (False, "capability_not_approved")  # 逐能力独立
+
+
+def test_runtime_build_enforces_outbound_gate(monkeypatch, tmp_path) -> None:
+    """凭证不等于授权：出站门未开/未授权时生产运行时显式拒绝构建。"""
+    import json as _json
+
+    from app.services.agentic_service import AgenticConfigError, build_cloud_runtime
+    from app.services.outbound_gate import OutboundGate
+
+    monkeypatch.setenv("CLOUD_CONFIG_OVERRIDES_PATH", str(tmp_path / "overrides.json"))
+    monkeypatch.setenv("CLOUD_SECRETS_PATH", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.setenv("LLM_API_KEY", "sk-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.delenv("CLOUD_DATA_UPLOAD_ALLOWED", raising=False)
+
+    with pytest.raises(AgenticConfigError) as exc:
+        build_cloud_runtime()
+    assert exc.value.code == "cloud_upload_not_authorized"  # 默认拒绝
+
+    monkeypatch.setenv("CLOUD_DATA_UPLOAD_ALLOWED", "true")
+    gate = OutboundGate.from_env()
+    approvals = {
+        "llm": gate.expected_fingerprint("llm", "deepseek", "unset", "deepseek-chat"),
+        "search:web": gate.expected_fingerprint("search:web", "tavily", "https://api.tavily.com", ""),
+        "search:arxiv": gate.expected_fingerprint("search:arxiv", "arxiv", "https://export.arxiv.org", ""),
+    }
+    monkeypatch.setenv("CLOUD_DATA_APPROVALS_JSON", _json.dumps(approvals))
+    runtime = build_cloud_runtime()  # 授权齐备才放行
+    assert runtime.llm is not None
+    assert set(runtime.executor.tool_names) >= {"kb_search", "web_search", "arxiv_search"}

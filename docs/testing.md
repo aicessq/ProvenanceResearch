@@ -202,3 +202,13 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 | 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过（README 换 Portfolio 描述后链接/契约不回归） |
 
 硬化验收逐项：未认证请求 401（auth_required/token_invalid）✓ 测试；弱/缺主密钥 503 auth_not_configured 不放行 ✓ 测试；限流 429+Retry-After（query/ingest/default 分桶、分客户端）✓ 测试；`/metrics`（http/auth_failures/rate_limited/task_terminal 计数）与 LOG_FORMAT=json 结构化日志 ✓；Compose 全栈**起栈冒烟未跑**（本机无 Docker 守护进程，静态校验通过；需用户 `docker compose up` 后按 README 冒烟）；三个失败案例演示路径写入 README（无证据拒答/来源冲突/provider failure），其中前两者已有自动化断言（refusal 测试、版本对照语料+证据并列），provider failure 由 P2.5/P3a 契约测试覆盖。JWT 依赖 pyjwt==2.10.1（装前已说明）。
+
+## 2026-10-11 硬化轮补丁：出站门接入运行时构建点
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| researcher（+2：来源出站授权、运行时出站执法） | multiagent `python -m pytest tests/ -q` | `134 passed` |
+| 四新包+bridge+ingest（P4 live 门含出站授权） | KE venv 六目录 | `128 passed` |
+| 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过 |
+
+行为变化：生产运行时构建（`build_cloud_runtime`）与 P4 live 跑分现在逐能力过出站门（llm/search:web/search:arxiv）——`CLOUD_DATA_UPLOAD_ALLOWED=false` 或未登记指纹即显式 `cloud_upload_not_authorized`，拒绝里附所需指纹；搜索来源（Tavily/arXiv 外送查询）纳入授权面与 UI 指纹表；`LLM_*` 配置面成为 runtime 的配置来源（`DEEPSEEK_API_KEY`/`DEEPSEEK_MODEL` 保留为兼容回退）；新增 `CLOUD_CONFIG_OVERRIDES_PATH`/`CLOUD_SECRETS_PATH` 环境覆盖（可测性/运维）。

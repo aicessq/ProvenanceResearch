@@ -240,7 +240,7 @@ def test_freeze_hash_mismatch_blocks_run() -> None:
         verify_freeze(tampered)
 
 
-def test_live_mode_requires_cloud_config(monkeypatch) -> None:
+def test_live_mode_requires_cloud_config_and_outbound_approval(monkeypatch) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     with pytest.raises(SystemExit):
@@ -249,7 +249,21 @@ def test_live_mode_requires_cloud_config(monkeypatch) -> None:
     with pytest.raises(SystemExit):
         require_live_config(["B"])  # B/C 还需 TAVILY_API_KEY
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
-    require_live_config(["A", "B", "C"])  # 齐备则放行
+    with pytest.raises(SystemExit) as gate_blocked:
+        require_live_config(["A", "B", "C"])  # 凭证齐了但出站未授权 → 仍拒绝（凭证不等于授权）
+    assert "出站未授权" in str(gate_blocked.value)
+
+    from app.services.outbound_gate import OutboundGate
+
+    monkeypatch.setenv("CLOUD_DATA_UPLOAD_ALLOWED", "true")
+    gate = OutboundGate.from_env()
+    approvals = {
+        "llm": gate.expected_fingerprint("llm", "deepseek", "unset", "deepseek-chat"),
+        "search:web": gate.expected_fingerprint("search:web", "tavily", "https://api.tavily.com", ""),
+        "search:arxiv": gate.expected_fingerprint("search:arxiv", "arxiv", "https://export.arxiv.org", ""),
+    }
+    monkeypatch.setenv("CLOUD_DATA_APPROVALS_JSON", json.dumps(approvals))
+    require_live_config(["A", "B", "C"])  # 授权齐备则放行
 
 
 def test_freeze_questions_all_resolve() -> None:

@@ -324,3 +324,10 @@
 - **观测**——`LOG_FORMAT=json` 切 loguru serialize（结构化日志行）；`GET /api/v1/metrics` Prometheus 文本（http_requests_total/auth_failures_total/rate_limited_total/task_terminal_total，纯内存计数，不含任何用户内容/密钥）。
 - **Compose 最终形态**——root docker-compose 六服务（postgres/redis/qdrant/backend/worker/frontend）+ 三个 Dockerfile（researcher 后端含顶层契约包、KE worker（镜像含历史 torch 依赖——全云迁移完成后按 roadmap 瘦身）、frontend 多阶段 nginx 反代 /api 且关闭缓冲以支持 SSE）。`docker compose config` 静态校验通过；**本机无 Docker 守护进程，全栈起栈冒烟未执行**（唯一待用户项）。README 换 execution-plan 的 Portfolio 描述 + 三失败案例演示说明（无证据拒答/来源冲突/provider failure，前两者有自动化断言，后者由 P2.5/P3a 契约覆盖）。
 - 验收：researcher 132（+7 硬化）、新契约 128、KE 98、前端构建全绿；"未认证请求被拒且限流生效、日志/指标可查、README 换描述、失败案例可演示"均有实现与断言，"Compose 全栈可起并通过冒烟"待用户环境执行。
+
+## 2026-10-11 硬化轮补丁：出站门从配置面接到出站构建点（闭合自标缺口）
+
+- 决定：此前出站门只护住配置/验证面（decisions 同日已标注缺口），本轮接线到**所有生产出站构建点**：`build_cloud_runtime`（researcher 生产路径）与 `eval/runner` live 模式在构造 LLM/搜索工具前逐能力 `check_outbound`（llm/search:web/search:arxiv），未授权显式 `cloud_upload_not_authorized` 并**回显所需指纹**（拒绝即指导）。凭证不等于授权从此覆盖运行时：默认 `CLOUD_DATA_UPLOAD_ALLOWED=false` 下任何 live 任务/跑分都拒绝外送。
+- 一致性修正：runtime 的 LLM 配置改为从配置面解析（`LLM_PROVIDER/LLM_MODEL/LLM_API_KEY/LLM_BASE_URL` + 加密覆盖），`DEEPSEEK_API_KEY/DEEPSEEK_MODEL` 保留为兼容回退（P4 冻结契约与 README 提及的环境名不破坏）；搜索来源（Tavily/arXiv 外送**查询**——design §9 明文计入外送）纳入出站视图与 UI 指纹表（search:web/search:arxiv），逐能力授权/失效语义与模型能力一致。
+- 可测性/运维：`CLOUD_CONFIG_OVERRIDES_PATH`/`CLOUD_SECRETS_PATH` 环境覆盖存储位置（默认 data/ 不变）。
+- 验收：researcher 134（+2）、六目录 128（P4 live 门测试扩出站维度）全绿；默认拒绝、逐能力独立、指纹变更失效均有断言。

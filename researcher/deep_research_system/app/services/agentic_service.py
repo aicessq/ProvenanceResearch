@@ -81,16 +81,34 @@ def build_cloud_runtime() -> AgenticRuntime:
         WebSearchTool,
     )
 
-    api_key = (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+    from app.services.cloud_config_service import CloudConfigService
+
+    config = CloudConfigService()
+    cfg = config.resolve("llm")
+    # 凭证：配置面（LLM_API_KEY / 加密覆盖）优先；DEEPSEEK_API_KEY 为兼容回退（P4 冻结契约）
+    api_key = (cfg.get("api_key") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
     if not api_key:
         raise AgenticConfigError(
             "config_missing",
-            "DEEPSEEK_API_KEY 未配置；生产路径不使用本地/模拟模型，任务显式失败",
+            "LLM_API_KEY/DEEPSEEK_API_KEY 未配置；生产路径不使用本地/模拟模型，任务显式失败",
         )
-    llm = DeepSeekLLMProvider(
-        api_key=api_key,
-        model=(os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
-    )
+
+    # 出站门（design.md §9）：凭证不等于授权——LLM/搜索外送问题与证据前逐能力检查；
+    # 总开关关闭或未授权 → 显式失败，绝不"先跑起来再说"
+    for capability in ("llm", "search:web", "search:arxiv"):
+        allowed, reason = config.check_outbound(capability)
+        if not allowed:
+            raise AgenticConfigError(
+                "cloud_upload_not_authorized",
+                f"出站未授权（{capability}: {reason}）；请在设置面板/环境完成 CLOUD_DATA_UPLOAD_ALLOWED 与逐能力授权",
+            )
+    llm_kwargs: dict = {
+        "api_key": api_key,
+        "model": (cfg.get("model") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
+    }
+    if cfg.get("base_url"):
+        llm_kwargs["base_url"] = cfg["base_url"].strip()
+    llm = DeepSeekLLMProvider(**llm_kwargs)
     store = EvidenceStore()
     registry = SourceRegistry()
     executor = ToolExecutor(

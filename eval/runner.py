@@ -158,13 +158,34 @@ async def _no_sleep(_seconds: float) -> None:
 
 
 def require_live_config(conditions: list[str]) -> None:
-    """live 模式配置门：缺配置显式失败，不降级 fake（AGENTS.md）。"""
+    """live 模式配置门：缺配置/未授权显式失败，不降级 fake（AGENTS.md + design.md §9）。"""
     import os
 
     if not (os.environ.get("DEEPSEEK_API_KEY") or "").strip():
         raise SystemExit("live 模式需要 DEEPSEEK_API_KEY；拒绝以 fake/本地模型产出评测结论")
     if any(c in conditions for c in ("B", "C")) and not (os.environ.get("TAVILY_API_KEY") or "").strip():
         raise SystemExit("条件 B/C 需要 TAVILY_API_KEY（外部源是条件定义的一部分）；缺配置显式失败")
+
+    # 出站门：live 评测会外送问题/查询——凭证不等于授权（design.md §9）
+    import sys as _sys
+
+    _sys.path.insert(0, str(REPO_ROOT / "researcher" / "deep_research_system"))
+    from app.services.outbound_gate import OutboundGate
+
+    gate = OutboundGate.from_env()
+    presets = {
+        "llm": ("deepseek", (os.environ.get("LLM_BASE_URL") or "unset").strip() or "unset", (os.environ.get("LLM_MODEL") or "deepseek-chat").strip()),
+        "search:web": ("tavily", "https://api.tavily.com", ""),
+        "search:arxiv": ("arxiv", "https://export.arxiv.org", ""),
+    }
+    for capability, (provider, endpoint, model) in presets.items():
+        allowed, reason = gate.check(capability, provider=provider, endpoint=endpoint, model=model)
+        if not allowed:
+            fingerprint = gate.expected_fingerprint(capability, provider, endpoint, model)
+            raise SystemExit(
+                f"出站未授权（{capability}: {reason}）。CLOUD_DATA_UPLOAD_ALLOWED=true 且在 "
+                f"CLOUD_DATA_APPROVALS_JSON 登记该能力指纹后重试：{capability} -> {fingerprint}"
+            )
 
 
 def sha256_file(path: Path) -> str:
