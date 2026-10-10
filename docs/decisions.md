@@ -221,3 +221,10 @@
 - 保留：P0–P5 各阶段的能力目标与验收标准不放松；Agent 预算默认值（3 轮/12 次工具/20000 token/180s）、RRF k=60 与 top-8、全云模型契约、出站双闸、"mock 仅限测试"均不变。
 - 理由：优先造出"提问→检索→证据→引用/拒答"的完整文本闭环（Vertical Slice），避免先陷入 P3b 多模态泥潭；前半段完成到 P4/P5 第一版即达到作品集展示水平，OCR/Vision 与硬化属后续提升。执行节奏改为**每完成一小部分即提交一次 git**（用户 2026-10-10 要求）。
 - 顺序裁决：计划正文 Phase 5/6 编号（P3b 在 P5 前）与其"执行优先级总结"及结尾段落（P5 在 P3b 前）不一致，按总结与结尾段落取 **P5 先于 P3b**，已在 `docs/execution-plan.md` 文首标注。
+
+## 2026-10-10 P2.5-0.1 模型测试接口 SSRF 防护（provider/host 精确 allowlist）
+
+- 决定：`POST /models/test` 在任何出站请求之前调用 `app/model_pool/endpoint_guard.validate_model_endpoint`：provider 必须在注册表（deepseek/zhipu/kimi/doubao/ernie/qwen/openai/anthropic），api_base 仅允许 https、禁止 URL userinfo、端口仅 443/默认，主机必须**精确**命中该 provider 的官方主机（不做后缀通配）；localhost、私网 IP、IP 字面量（含公网 IP）、file:// 一律拒绝；httpx 显式 `follow_redirects=False`（密钥不跨重定向发送）。请求体新增可选 `provider` 字段，为空时按主机反查，反查不到即拒绝。
+- 替代：原实现直接把用户提交的 `api_base` 拼上 `/chat/completions` 出站，等于服务端任意 URL 请求代理（可探内网/metadata），且 api_key 随之外送。
+- 理由：公开仓库的模型测试接口是最容易被指出的可信度缺口；"精确主机 allowlist + scheme 收紧"比黑名单式 IP 过滤更难绕过（DNS rebinding 对精确主机名无效）。自定义代理/自建端点暂不支持，待 P5 前端配置有出站授权后按 `CLOUD_DATA_APPROVALS_JSON` fingerprint 机制放开。
+- 验收：新增 `tests/test_endpoint_guard.py`——localhost/127.0.0.1/10.x/192.168.x/172.16.x/169.254.169.254/IP 字面量/file:///http/非允许 provider/userinfo 伪装/非 443 端口全部拒绝；路由级断言非法目标不发起任何出站请求（monkeypatch httpx 为断言失败）。researcher 65 passed（47 基线 + 18 新增）。

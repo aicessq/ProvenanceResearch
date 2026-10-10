@@ -235,6 +235,43 @@ class TopologyError(BaseAppError):
         )
 
 
+class ProviderUnavailableError(BaseAppError):
+    """
+    上游 provider 不可用（缺配置/调用失败）
+    禁止用 mock 结果或本地抽取兜底；由上层决定 retry / fallback / refusal
+    """
+
+    def __init__(
+        self,
+        message: str = "模型服务不可用",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            message=message,
+            code="PROVIDER_UNAVAILABLE",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details=details,
+        )
+
+
+class EndpointNotAllowedError(BaseAppError):
+    """
+    出站端点不在允许列表（SSRF 防护拒绝）
+    """
+
+    def __init__(
+        self,
+        message: str = "目标端点不在允许列表",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            message=message,
+            code="ENDPOINT_NOT_ALLOWED",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details=details,
+        )
+
+
 class TaskNotFoundError(BaseAppError):
     """
     任务未找到错误

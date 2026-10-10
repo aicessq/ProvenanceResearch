@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.schemas.response import success_response
+from app.model_pool.endpoint_guard import validate_model_endpoint
 from app.model_pool.key_pool import APIKeyPool
 from app.model_pool.registry import ModelRegistry
 from app.services.config_service import get_config_service
@@ -22,6 +23,7 @@ class ModelTestRequest(BaseModel):
     model_name: str
     api_key: str
     api_base: str
+    provider: str = ""
 
 
 @router.get("/models/status")
@@ -64,9 +66,10 @@ async def update_model_config(updates: list[SlotConfigUpdate]) -> dict:
 @router.post("/models/test")
 async def test_model_connection(req: ModelTestRequest) -> dict:
     import httpx
+    # SSRF 防护：先校验 provider/api_base，任何出站请求之前拒绝非法目标
+    base_url = validate_model_endpoint(req.provider, req.api_base)
     try:
-        base_url = req.api_base.rstrip("/")
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             resp = await client.post(
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {req.api_key}", "Content-Type": "application/json"},
