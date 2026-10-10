@@ -260,3 +260,11 @@
 - 替代：searcher 的 SearchService 单一 Tavily 调用与 KE 的裸检索不构成 Agent 可调用工具面——没有来源登记、没有同构 Evidence、没有失败契约；本轮不改它们（P2.5 已删其 fake success），迁移接入留给 P3d。
 - 理由：P3d Agent 循环的输入就是"Question → Evidence[] → Reader input"，先把这条链路的存储与契约立住（同构 Evidence、稳定 citation_id、去重与发现 provenance），Agent 才能只决定"调哪个工具"而不必关心来源差异；全文/摘要边界（content_scope）现在就强制，避免 P4 评测时出现"摘要冒充全文"的假阳性。
 - 验收：`evidence/tests` + `tools/tests` + `tests_bridge/test_p3c_source_identity.py` 共 46 例全绿——KB/Web/论文各自身份字段齐全、所有来源同构 Evidence 且 validate 通过、citation_id 前缀正确且内容敏感、伪造 citation_id 与同 id 异内容被拒、不同论文版本不合并、跨渠道同论文合并保留双发现 provenance、arXiv 节流生效、source_fetch 拒绝未登记 source/私网重定向/超限内容、evidence_read 拒绝未登记与错页、执行器拒绝未知工具名/未知参数且隔离工具崩溃、SSRF 目标（localhost/私网 IP/file://userinfo）全拒。全部 fake/recorded，无凭证不联网。CI 的 providers 作业扩为跑 providers+evidence+tools+tests_bridge。
+
+## 2026-10-10 P3d：有界 Agent Loop、Reader RRF 与 Citation Gate v1（垂直切片闭环）
+
+- 决定：新增顶层 `agent/` 包完成"Question → Agent → Tool → Evidence → Reader → Citation Gate → Answer/Refusal"闭环。`budget.py` 立硬边界（max_round=3、max_tool_calls=12 含 retry/fetch/read、max_tokens=20000、deadline=180s，clock 可注入；超时优先于超量报告）；`reader.py` 固定 RRF（k=60、w(kb)=1.0/外部=0.7、池 KB20/外部10、输出 top8、同 channel 去重不计重复赞成票、RRF 与原始分另存）；`citation_gate.py` 落地四步验证（citation 存在 → scope 覆盖 → 数字/引号专名字面存在（全角/半角归一化，回应 2026-09-18"全角数字假拒答"发现）→ 语义复检可注入）；`loop.py` 状态机 PLAN→TOOL_CALL→EVIDENCE_UPDATE→GAP_CHECK→GENERATE→VERIFY→DONE，停止原因精确到 sufficient_evidence/budget_exhausted/deadline_exceeded/no_progress/citation_gate_failed，循环检测键=规范化工具+参数（重复且无新 Evidence 即停），引用闸门失败只允许一次重生成且预算跨轮累计不重置。
+- 边界：本轮**不做** SSE/HTTP/Redis——trace 事件类型已按 SSE 事件名对齐（meta/plan/tool_call/tool_result/evidence/citation/done/error），SSE v1 与 `/api/v1` 落地随 P3d 后续小步做；LLM 经 providers.LLMProvider 协议注入（本轮测试全部 fake LLM 驱动真实 loop/executor/store，不 stub topology）。
+- 取舍：writer 输出非法 JSON 时视为该轮验证失败（走重生成/拒答），不让异常裸抛穿透 Agent；answer 与 refusal 严格分开（AgentAnswer.status），拒答附 refusal_reason。
+- 理由：这是第一个完整 Demo 的地基——Agent 只决定下一动作，工具白名单/预算/RRF/引用验证全部确定性执行（design.md §5）；先闭环后接线，避免在没有可测核心的情况下堆 SSE/UI。
+- 验收：`agent/tests` 24 例全绿——预算默认值与四种超限、RRF 共识优先/重复调用不双计/池截断/k60 公式、闸门拒未登记引用/scope 不足/数字专名缺失/语义失败与全角命中、垂直切片走通（调工具→证据→充分停止→生成→闸门通过→answered）、重复无进展早停、工具预算封顶、deadline 停止、无证据拒答、闸门两次失败拒答、重生成可挽救、白名单拒绝任意工具名。全量 95 例（providers 25+evidence/tools/bridge 46+agent 24）。
