@@ -279,3 +279,14 @@
 - 顺带修正（design §8 明文要求、原实现缺口）：Citation Gate 语义复检（SemanticVerifier）的调用计入共享 Budget 并可发 token_delta（stage=verify）——"验证/重生成使用剩余任务预算"此前只覆盖了重生成；token_delta 现覆盖 plan/generate/verify 三阶段，P4 成本统计口径由此成立。工具结果/引用与 call_id 的关联在 trace 与 SSE 上补齐（tool_result、evidence 均带 call_id）。
 - 取舍/已知边界：token_delta 是**调用级用量**（generate 非流式，P3a stream 贯通前不做逐 token 流）；Redis Stream 事件 TTL 3 天、进程内直播（单实例）；Redis 故障时事件降级为仅直播并告警、不伪造回放（与 task_state_store 容错一致）；真实云 smoke（真 DeepSeek 驱动端到端）未跑，全部测试 fake/recorded。
 - 验收：新契约 100 例（+5 agent 事件 sink）+ researcher 113 例（原 74 + SSE 语义 20（内存与 fake-Redis 双后端同套）+ agentic 桥 10 + /api/v1 契约 9）+ KE 98 回归全绿。P3d 的"SSE 工具/证据/引用/终态顺序、完成订阅竞态、终态重连及回放、任务结果与拒答分开、旧接口兼容回归与 OpenAPI 检查"均有断言；取消生效与 call_id 关联在桥/HTTP 层复验。
+
+## 2026-10-11 P4 第一轮 baseline：冻结件 + 可复现 runner + 指标机械实现
+
+- 决定：按 roadmap P4 前置"跑分前冻结"落地 `eval/baseline/round1.freeze.json` + `round1.md`——18 题（KB/多步/web/paper/版本对照/应拒/近似干扰全覆盖）、数据集 sha256 指纹、模型/索引/提示词/Reader/闸门版本、预算（3/12/20000/180s）、每条件 3 次、评分机械口径与**预冻结门槛**（安全样例与预算合规 1.0 硬门槛；引用准确率 ≥0.8、拒答准确率 ≥0.75、误拒率 ≤0.25、答案机械分 ≥0.6；非回归容差 C ≥ A − 0.05，按 roadmap 取消"全指标超单源"）。runner 起跑前校验指纹，不一致拒绝跑分；门槛失败禁止事后放宽（分析→记 decisions→重跑）。
+- 对照公平性：A（KB-only）/B（固定混合）/C（agentic）**共用同一 AgentLoop 的 GENERATE→VERIFY 段**——A/B 预置固定检索进 EvidenceStore、planner 恒停；C 由 planner 有界循环取证。生成器、Reader RRF、引用闸门、预算完全一致，对照只反映检索方式差异。检索指标在融合 top-8 截断前的 RRF 全序上算（roadmap P4 明文）。
+- 检索基线：本地确定性 bigram FTS（`eval/corpus_search.py`，含《标题》/条文号加成）——**不用 embedding**（embedding 是云能力，接入须换索引身份重冻结重跑）；design.md 明文允许本地 FTS/RRF。页文本来自语料 pages.jsonl，扫描件无文本层即如实缺席，不伪造。
+- 机械评分口径（freeze scoring_rules 的实现）：gold 命中 = 语料 (doc_id,page) / 论文 (arxiv_id+版本，版本不匹配不算) / URL（同 host 且尾段互含——"canonical_url 命中"在跑分前定死的机械解释，非事后放宽）；无 gold locator 的题（topic_absent 应拒题）recall/MRR 记 **n/a 不记 0**；答案正确率 = required_points 归一化逐字覆盖、forbidden 命中即 0，只作可复现代理，最终裁决人工（LLM 辅助不得单独裁决）；OCR/视觉指标 P3b 前记 n/a 不填 0。
+- fake 模式定位：脚本 LLM + MockTransport 录制响应走**真实**检索/工具/Reader/闸门代码，只验证 runner 机械正确性；报告标 `mode=fake` + `not_a_conclusion=true`，禁止引用为评测结论。live 模式缺 DEEPSEEK_API_KEY（全条件）或 TAVILY_API_KEY（B/C，外部源是条件定义的一部分）即显式失败退出（AGENTS.md），不降级。
+- 安全样例五种（runner 每次运行必跑，硬门槛 1.0）：无登记引用、伪造 citation_id、越权工具名、超预算续调（预算封顶计费）、摘要冒充全文（claim scope=fulltext 但证据 abstract）——全部必须拒答。
+- 测试暴露并修复两个真问题：(1) `run_condition` 自建 EvidenceStore 而工具登记进另一个 store——循环查不到任何证据（C 全拒答才暴露）；改为调用方持有 store、工具与循环共享（与生产同构，AgentLoop 本就不自行登记工具证据）。(2) **空 claims 被闸门当通过**——loop 文档"拒答条件含引用不足"但实现漏了：writer 输出空 claims 视为该轮验证失败（走一次重生成），仍空则拒答；不让无据文本冒充成功答案（agent 测试已补）。(3) 顺带修正：无 gold 题的检索指标从"记 0"改"记 n/a"，避免分母虚压 recall。
+- 验收：新契约 115 例全绿（P4 机械验收 14 例：指标纯函数/gold 命中规则/确定性检索/三条件 fake 端到端/空 claims 拒答/安全样例全拒/冻结指纹防篡改/live 配置门）；KE 98、researcher 113 回归确认；runner fake 自检三条件跑通（recall@10=0.7059、MRR≈0.64、安全 5/5）——此为机械信号非结论。**live 正式跑分待用户配置云凭证**（DEEPSEEK_API_KEY/TAVILY_API_KEY），届时按冻结门槛出 A/B/C 对照报告并保留均值/波动/95% CI 与 cost_unknown 标记。

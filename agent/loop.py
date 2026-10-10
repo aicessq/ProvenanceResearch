@@ -232,6 +232,10 @@ class AgentLoop:
                 # writer 输出非法（坏 JSON/缺 claims）视为该轮验证失败，走重生成或拒答
                 await emit({"type": "error", "reason": "invalid_writer_output", "attempt": attempt, "detail": str(exc)[:120]})
                 continue
+            if not claims:
+                # 引用不足：没有任何可验证结论等同于无据回答（loop 拒答条件），重生成后仍空则拒答
+                await emit({"type": "error", "reason": "empty_claims", "attempt": attempt})
+                continue
             await emit({"type": "citation", "claims": len(claims), "attempt": attempt})
             report = await self._gate.verify(claims, self._store)
             if report.passed:

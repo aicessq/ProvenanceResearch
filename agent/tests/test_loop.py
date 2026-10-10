@@ -353,3 +353,21 @@ def test_unknown_tool_name_is_rejected_not_executed() -> None:
     # 白名单拒绝：无证据 → 拒答，而不是执行任意工具
     assert answer.status == "refused"
     assert answer.refusal_reason == "no_evidence"
+
+
+def test_empty_claims_treated_as_insufficient_and_refused() -> None:
+    """writer 不给 claims = 引用不足 → 重生成后仍空则拒答，无据文本不得当成功答案。"""
+    store = EvidenceStore()
+    planner = ScriptLLM([PLAN_CALL, PLAN_DONE])
+    writer = ScriptLLM(
+        [
+            json.dumps({"answer": "看起来有答案但无任何可验证结论", "claims": []}, ensure_ascii=False),
+            json.dumps({"answer": "看起来有答案但无任何可验证结论", "claims": []}, ensure_ascii=False),
+        ]
+    )
+    loop = _loop(planner, writer, store)
+    answer = asyncio.run(loop.run("网络安全法第一条讲了什么？"))
+    assert answer.status == "refused"
+    assert answer.refusal_reason == "citation_gate_failed"
+    empty_events = [t for t in answer.trace if t.get("reason") == "empty_claims"]
+    assert len(empty_events) == 2  # 首次 + 一次重生成

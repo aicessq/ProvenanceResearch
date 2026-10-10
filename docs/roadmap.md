@@ -19,7 +19,7 @@
 | P3b | PDF、云 OCR/vision 与可溯源入库 | 未开始 |
 | P3c | KB/Tavily/arXiv 工具与来源 Registry | 2026-10-10 文本链路完成：Evidence v2、Source Registry、五工具与执行器、46 例契约测试（含 tests_bridge 来源身份验收）；tool-call schema 贯通与旧路径迁移在 P3d |
 | P3d | Agentic RAG、Reader、引用闸门、公共接口/SSE | 2026-10-10 文本链路完成：有界 Agent Loop（五种停止原因/循环检测/一次重生成）、Reader RRF、Citation Gate v1（四步验证+全角归一化）、事件 sink（token_delta 记账/call_id 关联）、SSE v1（终态唯一/订阅竞态/Last-Event-ID 回放）、/api/v1 + problem+json（任务结果与拒答分开）；新契约 100 + researcher 113 例全绿。真实云 smoke 与 OCR/视觉拒答样例随授权凭证与 P3b |
-| P4 | 质量、消融、云费用与可靠性评测 | 未开始 |
+| P4 | 质量、消融、云费用与可靠性评测 | 2026-10-11 第一轮 baseline 基建完成：冻结件（18 题/数据指纹/版本/预算/预冻结门槛）、可复现 runner（A/B/C + 安全样例 5 种 + 指标含均值/CI/cost_unknown）、机械验收 14 例（新契约 115 全绿）；fake 自检全绿为机械信号，**live 正式跑分待用户云凭证**（DEEPSEEK_API_KEY/TAVILY_API_KEY），消融（去 arXiv/禁追加检索等）与完整 56 题跑分在首轮后 |
 | P5 | 统一研究前端与云服务配置 | 未开始 |
 
 ## P0（历史）— 规格与骨架

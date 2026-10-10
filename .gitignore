@@ -281,3 +281,6 @@ knowledge_engine/Doc/架构与技术选型课程.html
 
 # 本地工具与会话状态：计划文件、会话记录等，不进版本库
 .zcode/
+
+# eval 跑分产物（可由 runner 重放生成；fake 报告不是评测结论）
+eval/results/

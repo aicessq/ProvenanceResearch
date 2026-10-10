@@ -145,3 +145,15 @@ agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM �
 | knowledge_engine | 从仓库根执行 `knowledge_engine/.venv/bin/python -m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动，回归确认） |
 
 计数变化：新契约 95 → 100（agent 增事件 sink 5 例）；researcher 74 → 113（+39：SSE v1 语义 20 例——同一套测试跑内存与 fake-Redis 两个后端、agentic 桥 10 例、/api/v1 HTTP 契约 9 例）。SSE 语义覆盖顺序、终态唯一、完成订阅竞态、Last-Event-ID 重连回放、Redis 故障降级；HTTP 层覆盖 problem+json、旧接口错误形状逐字回归与 OpenAPI 路径检查。全部 fake/recorded（fake LLM + MockTransport + fake Redis 命令），无凭证不联网；34 个 integration、真实云 smoke、前端构建照旧未跑。CI 两套既有作业命令不变即覆盖新测试（researcher 作业现 113 例；providers 作业五目录现 100 例）。
+
+## 2026-10-11 P4 第一轮 baseline（冻结件 + runner + 指标）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 四新包+bridge（含 P4 14 例） | 仓库根 `knowledge_engine/.venv/bin/python -m pytest providers/tests evidence/tests tools/tests agent/tests tests_bridge -q` | `115 passed` |
+| knowledge_engine | 同上 venv，`-m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动，回归确认） |
+| researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `113 passed`（零改动，回归确认） |
+| runner 机械自检 | 仓库根 `knowledge_engine/.venv/bin/python eval/runner.py --mode fake --out eval/results/` | 三条件跑通、safety=PASS（报告标 mode=fake、not_a_conclusion=true） |
+| 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过（13 份自撰文档、9 条敏感路径、5 类云能力） |
+
+计数变化：新契约 100 → 115（agent +1 空 claims 拒答、tests_bridge +14 P4 机械验收）。P4 fake 自检的机械信号（非结论）：A/B/C recall@10 均 0.7059、MRR≈0.637–0.643、引用准确率 0.6429、安全样例 5/5 拒答。**live 正式跑分未执行**：缺 DEEPSEEK_API_KEY/TAVILY_API_KEY，runner live 模式按 AGENTS.md 显式失败拒绝降级；34 个 integration 与前端构建照旧未跑。`eval/results/` 为生成物已入 .gitignore。

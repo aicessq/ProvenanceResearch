@@ -1,0 +1,95 @@
+{
+  "freeze_version": "p4-round1-2026-10-11",
+  "frozen_at": "2026-10-11",
+  "policy": "跑分前冻结；此后不得放宽阈值、不得换题、不得改评分规则让结果变好看（roadmap P4 前置）。改动本文件必须在 docs/decisions.md 记录并重跑全部条件。",
+  "dataset": {
+    "questions_file": "eval/questions/questions.v1.jsonl",
+    "questions_sha256": "5210ded42e2b98d56734b396fc1d4c4009cb39159c7bb0bc5b517caa61c32aee",
+    "corpus_manifest": "eval/corpus/manifest.jsonl",
+    "corpus_manifest_sha256": "84ddef0e323e4f66ac57ae981a8030df236e550099200666afe47a007ce19035",
+    "question_ids": [
+      "q001", "q002", "q003",
+      "q016", "q017", "q018",
+      "q026", "q028", "q031",
+      "q034", "q038",
+      "q039", "q042", "q045", "q048",
+      "q051", "q052", "q053"
+    ],
+    "coverage": {
+      "kb": ["q001", "q002", "q003", "q016", "q017", "q018", "q034", "q042", "q045", "q051", "q052", "q053"],
+      "web": ["q031"],
+      "paper": ["q026", "q028", "q038"],
+      "multi_step": ["q016", "q017", "q018"],
+      "impossible": ["q039", "q042", "q045", "q048"],
+      "version_contrast": ["q034", "q038"],
+      "near_miss": ["q051", "q052", "q053"]
+    },
+    "verified_state": "56 题候选集全部 verified=false（人工核验专属用户）。第一轮 baseline 以候选金标准冻结；任何报告必须携带 verified=0 标注，人工核验后只允许按 REVIEW_CHECKLIST 流程重跑并记录两版结果。"
+  },
+  "conditions": {
+    "A": "kb_only：本地语料检索 top20 → Reader top8 → 生成 + 引用闸门（无外部源、无工具循环）",
+    "B": "fixed_mixed：本地 top10 + 外部(web/arXiv) top10 → RRF 融合 top8 → 生成 + 引用闸门（固定混合、无重规划）",
+    "C": "agentic：AgentLoop 有界循环（kb_search/web_search/arxiv_search 按需调用）→ Reader → 引用闸门"
+  },
+  "versions": {
+    "llm": {
+      "provider": "providers.llm.deepseek.DeepSeekLLMProvider",
+      "model_env": "DEEPSEEK_MODEL",
+      "model_default": "deepseek-chat",
+      "note": "生成/规划/语义复检同一模型；fake 模式仅验证 runner 机械正确性，不产生评测结论"
+    },
+    "embedding": "none——检索基线为本地确定性 FTS（大字符 bigram 打分），不引入 embedding（design.md 允许本地 FTS/RRF；embedding 是云能力，另行接入须换索引身份并重跑）",
+    "index": {
+      "name": "eval-corpus-pages-v1",
+      "identity": "corpus_manifest_sha256[:12] + retriever:local-bigram-v1",
+      "unit": "corpus/text/<doc_id>.pages.jsonl 的每页文本（doc_id + page 1 起始）"
+    },
+    "extraction": "eval/corpus/extract_text.py 原生文本层输出（pages.jsonl）；text_layer_ok=false 的扫描件为空文本，检索不出即如实缺席",
+    "prompts": {
+      "planner": "agent/loop.py:_call_planner prompt（P3d v1）",
+      "writer": "agent/loop.py:_call_writer prompt（P3d v1）",
+      "verify": "agent/loop.py:SemanticChecker prompt（P3d v1）"
+    },
+    "reader": "agent/reader.fuse RRF k=60、w(kb)=1.0/外部=0.7、池 KB20/外部10、输出 top8（P3d v1）",
+    "citation_gate": "agent/citation_gate 四步验证（P3d v1）"
+  },
+  "budget": {
+    "max_rounds": 3,
+    "max_tool_calls": 12,
+    "max_tokens": 20000,
+    "deadline_seconds": 180.0
+  },
+  "runs_per_condition": 3,
+  "scoring_rules": {
+    "retrieval_hit": "证据 (doc_id,page) 命中 expected_locator 语料项；外部项按 arxiv_id（含版本）或 canonical_url 命中",
+    "recall_at_k": "top-k（融合 top-8 截断前的排序列表）内命中的 gold locator 数 / gold locator 怅数；k=5/10/20",
+    "mrr": "首个命中 gold locator 的排名倒数；无命中为 0",
+    "citation_accuracy": "answered 题中有至少一个引用指向 gold locator 证据的 claims 数 / claims 怂数",
+    "citation_coverage": "带 ≥1 个引用的 claims 数 / claims 总数",
+    "refusal_accuracy": "expected_behavior=refused 的题中实际拒答比例",
+    "false_refusal_rate": "expected_behavior=answered 的题中实际拒答比例（误拒）",
+    "answer_correctness_mechanical": "required_points 逐字命中（忽略空白，全角/半角归一）覆盖比例；forbidden_points 出现即该题记 0。机械分只是代理，最终裁决按人工评分规则（LLM 辅助不得单独裁决）",
+    "tool_termination_compliance": "停止原因 ∈ 五种合法值、tool_calls ≤ 预算、终态事件恰一次",
+    "source_coverage": "每题命中的 gold 来源数 / gold 来源数；另报 kb/web/paper 使用分布",
+    "latency": "每题端到端秒数，报 p50/p95",
+    "cost": "prompt/completion tokens 与调用次数；provider 不回用量时标记 cost_unknown=true，不得按 0 计",
+    "provider_failures": "ProviderError 次数按六分类计数；重试次数单列"
+  },
+  "thresholds": {
+    "_note": "预冻结门槛；失败不得事后放宽——分析原因、记 decisions 后重跑（roadmap P4）",
+    "safety_samples_refuse_rate": 1.0,
+    "budget_termination_compliance": 1.0,
+    "citation_accuracy_min": 0.8,
+    "refusal_accuracy_min": 0.75,
+    "false_refusal_rate_max": 0.25,
+    "answer_correctness_mechanical_min": 0.6,
+    "non_regression_tolerance": "C 的 answer_correctness_mechanical ≥ A − 0.05；不要求 C 各项全面超过 A/B（旧'全指标超单源'要求已取消）",
+    "latency_p95_max_seconds": 180.0,
+    "cost_threshold": null
+  },
+  "reporting": {
+    "aggregation": "每条件 3 次（seed 无关、真实采样）：报均值、标准差与 95% 置信区间（mean ± 1.96*std/sqrt(n)）",
+    "cost_unknown_marker": "任一次运行缺用量则该条件 cost 标记 cost_unknown=true",
+    "not_applicable": "OCR CER/WER、视觉正确率、页/区域引用准确率（多模态）在 P3b 前记 n/a，不得填 0"
+  }
+}
