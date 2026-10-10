@@ -308,3 +308,11 @@
 - embedding 变更打 `index_migration_pending` 标记（P3a 的 EmbeddingIdentity/CollectionBinding 契约）：UI 可见"待索引迁移"；索引迁移执行器随 KE 接入，未迁移前不得当作新索引已生效（不在本模块偷偷换 collection）。
 - 取舍：新模块命名 `cloud_config_service.py` 避让旧 `config_service.py`（SQLite 模型槽，旧路径零改动）；`cryptography==44.0.0` 进 environment.yml 与本机 multiagent（装依赖已在动手前说明：必要性=凭证加密硬要求，体积约 3–4 MB wheel，无更轻的正当替代）。端点校验复用 P2.5 的 `endpoint_guard.validate_model_endpoint`（官方主机 allowlist、https-only）。
 - 验收：researcher 125 例（+12 配置面）、新契约 115、前端构建 43 模块全绿；浏览器实测设置面板（默认拒绝/指纹表/主密钥缺失警告）符合验收描述。user 侧截图验收与真实云验证（填真实密钥打真实 provider）待用户操作。
+
+## 2026-10-11 P3b：多模态入库（云 OCR/vision + 逐页回退流水线 + 溯源到 citation）
+
+- 决定：`providers/ocr`（协议 OCRBlock/OCRPageResult：转录+阅读顺序+bbox 0–1+可选置信度；fake 可编排成功/低质/失败 + **真实百度 OCR 适配器**——token 换取/缓存、location 像素归一化、错误六分类、缺配置显式失败）与 `providers/vision`（协议 VisionObservation 按 text_in_image/observation/inference **分开标注**；fake + **真实 OpenAI 兼容 VLM 适配器**——GLM-4V/Qwen-VL 等，https-only、强制结构化输出、解析不出结构即 INVALID_RESPONSE 不冒充转录）。`ingest/pipeline.py` 逐页 **native → OCR → vision** 回退，产出多模态 Evidence（page/rotation/bbox/asset_id/asset_hash 全程保留，extract method/provider/model/confidence 真实记录，推断只进 derived_observations 不回填 raw_text）。
+- 发布门（design.md §7）：必需页最终 failed → `publishable=False` 且失败页+各阶段原因显式报告；非必需页失败也报告但不阻发布；低置信度页标 low_quality 并如实记 confidence（不得被忽略）；文本层页不再 OCR（文本层与 OCR 不重复）。
+- 图注-资产关联：页内图像资产登记为 `asset` 型 Evidence（locator.asset_id/asset_hash/bbox + 图注文本同证据携带），"child 不切断图注与资产联系"落实为同一 Evidence 上的绑定；原生页与 OCR 页都保留该关联。
+- 范围取舍（诚实声明）：Celery 心跳/租约 fencing、真实 KE 上传→worker→index→检索 integration（roadmap P3b 后半）**本轮不做**——需要 Docker/PG/Redis/Qdrant 基建与 P1/P2 真实入库迁移，属于"硬化轮/KE 接入"序列；OCR/vision 实际质量按 roadmap 归 P4 分层裁决。vendor 选择：首个真实 OCR 选百度（协议简单、bbox 可用），首个 vision 选 OpenAI 兼容 VLM（用户可自选 base_url，无绑定）；后续加供应商只加 adapter 不动核心。
+- 验收：新契约 128 例全绿（+13）；P3b 验收要点中"fixture 覆盖原生/扫描/混合/旋转/含图、页码/bbox/hash 到 citation 不丢、文本层与 OCR 不重复、fake 响应/低质量/失败可测、失败页不发布完整版本"均有断言。KE 98、researcher 125 回归确认。

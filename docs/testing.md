@@ -179,3 +179,13 @@ agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM �
 | 浏览器联调 | 冒烟后端 + 设置面板实测 | 五能力表单/密钥只写不读/主密钥缺失警告/出站授权默认拒绝（cloud_upload_not_authorized）+ 指纹表/主密钥轮换区 ✓ |
 
 验证的行为（P5 验收项）：凭证 Fernet 加密落盘且 GET/视图不回显（断言明文不在响应与密文文件）；CONFIG_ENCRYPTION_KEY 缺失/弱/格式错拒绝保存、不回退明文；轮换失败保留旧密文、成功后新钥可解；校验失败保留旧值、删除覆盖恢复环境值；provider/endpoint/model 变更使旧出站授权失效（approval_stale_config_changed）；凭证不等于授权（live 探测需 confirm_fingerprint 显式确认）。依赖变更：researcher 环境新增 `cryptography==44.0.0`（environment.yml + 本机 conda multiagent，凭证加密唯一正当选择）。
+
+## 2026-10-11 P3b（多模态入库：OCR/vision + 流水线）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 四新包+bridge+ingest | 仓库根 KE venv `-m pytest providers/tests evidence/tests tools/tests agent/tests ingest/tests tests_bridge -q` | `128 passed`（+13：providers OCR/vision 真实适配器 5、ingest 流水线 7、溯源 bridge 1） |
+| knowledge_engine | KE venv 原命令 | `98 passed`（零改动，回归确认） |
+| researcher | multiagent 原命令 | `125 passed`（零改动，回归确认） |
+
+P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层页不再 OCR（不重复）；OCR blocks/bbox/阅读顺序/置信度进 Evidence（像素坐标归一化 0–1，无置信度不伪造）；OCR 失败→vision 兜底且图内文字/可观察/推断分开标注（推断不回填 raw_text）；混合文档必需页 OCR+vision 双失败 → 不发布"完整"版本 + 失败页原因显式报告，其他页不受拖垮；非必需页失败仍可发布但必须报告；rotation/asset hash/图注-资产关联从 parser 保留到 Evidence 与 citation_id（同身份重登记同 id）；低置信度标 low_quality 如实记录。真实适配器契约：百度 OCR（token 缓存/六分类/缺配置显式失败）、OpenAI 兼容 VLM（https-only/结构化输出/非法输出拒绝）。**未覆盖**（记录在 decisions）：Celery 心跳/租约 fencing 与真实 KE 上传→worker→index 集成（需 Docker/PG/Redis/Qdrant 基建与 P1/P2 迁移）、OCR/vision 实际质量分层（P4）。
