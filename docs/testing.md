@@ -112,3 +112,14 @@
 | 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过 |
 
 providers 为新增顶层包（纯 httpx+pytest、无凭证、不联网，fake/recorded 响应）；CI 新增 `providers-tests` 作业（httpx==0.28.1、pytest==9.1.1 钉版）。真实云 smoke 照旧不进普通 PR。providers 测试建议用带 httpx 的任意 3.12+ 环境；KE venv 因复用 torch 环境跑它没有额外成本。
+
+## 2026-10-10 P3c-text（Evidence/工具文本链路）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| evidence+tools+tests_bridge | 仓库根 `knowledge_engine/.venv/bin/python -m pytest evidence/tests tools/tests tests_bridge -q` | `46 passed` |
+| providers（P3a 回归） | 同上 venv，`-m pytest providers/tests/ -q` | `25 passed` |
+| knowledge_engine | 同上 venv，`-m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动） |
+| researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `74 passed`（零改动） |
+
+evidence/tools 为新增顶层包（依赖仅 httpx+pytest，fake/recorded 响应，无凭证不联网）；CI 的 providers 作业扩为 `providers/tests/ evidence/tests/ tools/tests/ tests_bridge/` 四目录（71 例）。未跑 34 个 integration、真实云 smoke、前端构建（前端零改动）。

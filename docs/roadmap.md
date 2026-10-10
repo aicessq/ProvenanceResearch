@@ -17,7 +17,7 @@
 | P2.5 | 安全与基础修复（SSRF、fake success、key routing） | 未开始 |
 | P3a | 云模型 Adapter 与配置/索引身份 | 2026-10-10 部分完成：providers 层错误六分类、LLM 一真一假、EmbeddingIdentity/CollectionBinding 与 25 例契约测试落地；stream/tool-call/索引迁移贯通未完 |
 | P3b | PDF、云 OCR/vision 与可溯源入库 | 未开始 |
-| P3c | KB/Tavily/arXiv 工具与来源 Registry | 未开始 |
+| P3c | KB/Tavily/arXiv 工具与来源 Registry | 2026-10-10 文本链路完成：Evidence v2、Source Registry、五工具与执行器、46 例契约测试（含 tests_bridge 来源身份验收）；tool-call schema 贯通与旧路径迁移在 P3d |
 | P3d | Agentic RAG、Reader、引用闸门、公共接口/SSE | 未开始 |
 | P4 | 质量、消融、云费用与可靠性评测 | 未开始 |
 | P5 | 统一研究前端与云服务配置 | 未开始 |
