@@ -179,7 +179,15 @@ class AgentLoop:
                 ]
                 for ev in new_evidence:
                     registered_before.add(ev.citation_id)
-                    await emit({"type": "evidence", "citation_id": ev.citation_id, "call_id": result.call_id})
+                    await emit(
+                        {
+                            "type": "evidence",
+                            "citation_id": ev.citation_id,
+                            "call_id": result.call_id,
+                            "source_type": ev.source_type,
+                            "content_scope": ev.content_scope,
+                        }
+                    )
 
                 if new_evidence:
                     made_progress = True

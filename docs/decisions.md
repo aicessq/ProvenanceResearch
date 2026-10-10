@@ -290,3 +290,12 @@
 - 安全样例五种（runner 每次运行必跑，硬门槛 1.0）：无登记引用、伪造 citation_id、越权工具名、超预算续调（预算封顶计费）、摘要冒充全文（claim scope=fulltext 但证据 abstract）——全部必须拒答。
 - 测试暴露并修复两个真问题：(1) `run_condition` 自建 EvidenceStore 而工具登记进另一个 store——循环查不到任何证据（C 全拒答才暴露）；改为调用方持有 store、工具与循环共享（与生产同构，AgentLoop 本就不自行登记工具证据）。(2) **空 claims 被闸门当通过**——loop 文档"拒答条件含引用不足"但实现漏了：writer 输出空 claims 视为该轮验证失败（走一次重生成），仍空则拒答；不让无据文本冒充成功答案（agent 测试已补）。(3) 顺带修正：无 gold 题的检索指标从"记 0"改"记 n/a"，避免分母虚压 recall。
 - 验收：新契约 115 例全绿（P4 机械验收 14 例：指标纯函数/gold 命中规则/确定性检索/三条件 fake 端到端/空 claims 拒答/安全样例全拒/冻结指纹防篡改/live 配置门）；KE 98、researcher 113 回归确认；runner fake 自检三条件跑通（recall@10=0.7059、MRR≈0.64、安全 5/5）——此为机械信号非结论。**live 正式跑分待用户配置云凭证**（DEEPSEEK_API_KEY/TAVILY_API_KEY），届时按冻结门槛出 A/B/C 对照报告并保留均值/波动/95% CI 与 cost_unknown 标记。
+
+## 2026-10-11 P5 第一版：统一前端三栏（Conversation / Evidence / Task Timeline）
+
+- 决定：`frontend/` 落地统一研究前端（Vue 3 + Pinia + Vite + TS，轻依赖、手写设计系统，不搬旧 Element Plus/vue-flow/html2pdf——那些是报告流水线资产）。三栏按 execution-plan Phase 5：Conversation（提问/回答+逐条 claims+引用芯片/拒答/失败/取消可观察）、Evidence（来源与内容范围徽章、文档页码/URL、原文摘录、点击引用芯片高亮）、Task Timeline（SSE v1 事件实时流 meta→plan→tool_call→tool_result→source_status→evidence→token_delta→citation→done/error + 停止原因/预算/用量摘要；不含模型隐私推理——事件契约本就不带 prompt）。
+- 行为约定：多会话不串流（切换任务即断旧流、按 sequence 去重）；断线重连走浏览器 EventSource 自动 `Last-Event-ID` 续传并给出可见提示；回答结局（answered/refused）与任务生命周期（completed/failed/cancelled）在渲染层也分开（拒答=黄色正常结局卡，失败才进错误卡）。
+- 替代：不复用旧 Vue 工程整体——旧前端是 8 角色报告 UI（已降级为可选拓扑），契约是旧 `/api/research`；新 UI 直连 `/api/v1` + SSE v1，重建比改造便宜且旧前端在替代验收前还不能删。旧两套前端暂留 CI 矩阵，替代验收后删除。
+- 联调证据：浏览器实测通过（创建任务→时间线实时→回答+引用→芯片高亮 gold 证据卡含"第 3 页/不少于六个月"原文）；联调用 `scripts/ui_smoke_server.py`（**FAKE 运行时**，脚本头显式标注非生产入口、产出非结论；生产入口仍是 uvicorn main:app，缺云配置显式失败）。
+- 顺带修复（联调暴露）：SSE 时间线出现重复 meta——服务的权威 meta（含预算）与 loop trace 的 meta（仅问题文本）都进流；`_forward` 现在跳过 loop 侧 meta/done（终态本来就是服务统一发），终态唯一契约不受影响。
+- CI：frontend-build 矩阵加入 `frontend/`（vue-tsc 严格类型检查在 CI 内联跑）。P5 云配置面板（provider/model/base_url/key 加密存储、出站逐能力授权 UI）随后落地，密钥不进 localStorage/GET/日志的约束从第一版就成立（当前界面无任何密钥入口）。

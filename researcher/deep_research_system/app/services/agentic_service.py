@@ -317,7 +317,8 @@ class AgenticTaskService:
         """Agent trace → SSE v1 事件：终态由 _run 统一发，此处只发过程事件。"""
         event_type = entry.get("type", "")
         payload = {k: v for k, v in entry.items() if k != "type"}
-        if event_type == "done":
+        if event_type in ("done", "meta"):
+            # done 由 _run 统一发终态；meta 由 _run 发带预算的权威版本（loop 的 meta 只有问题文本）
             return
         if event_type == "error":
             await self._event_log.append(task_id, "error", {"fatal": False, **payload})

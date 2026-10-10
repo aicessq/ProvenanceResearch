@@ -157,3 +157,14 @@ agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM �
 | 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过（13 份自撰文档、9 条敏感路径、5 类云能力） |
 
 计数变化：新契约 100 → 115（agent +1 空 claims 拒答、tests_bridge +14 P4 机械验收）。P4 fake 自检的机械信号（非结论）：A/B/C recall@10 均 0.7059、MRR≈0.637–0.643、引用准确率 0.6429、安全样例 5/5 拒答。**live 正式跑分未执行**：缺 DEEPSEEK_API_KEY/TAVILY_API_KEY，runner live 模式按 AGENTS.md 显式失败拒绝降级；34 个 integration 与前端构建照旧未跑。`eval/results/` 为生成物已入 .gitignore。
+
+## 2026-10-11 P5 第一版（统一前端三栏 + 联调）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 统一前端构建 | `cd frontend && npm install && npm run build`（vue-tsc --noEmit + vite build） | 通过（39 模块，产物 85.9 kB JS + 9.4 kB CSS） |
+| 浏览器联调 | `scripts/ui_smoke_server.py`（FAKE 运行时）+ `npm run dev` + 浏览器实测 | 三栏渲染 ✓、创建任务→SSE 时间线实时→回答+引用芯片→点芯片高亮 gold 证据卡（含页码/原文）✓、任务切换器/删除按钮 ✓ |
+| 四新包+bridge | 仓库根 `knowledge_engine/.venv/bin/python -m pytest providers/tests evidence/tests tools/tests agent/tests tests_bridge -q` | `115 passed`（零改动，回归确认） |
+| researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `113 passed`（含 meta 去重修复后回归） |
+
+联调修复记录：时间线曾出现两条 meta（服务带预算的 meta 与 loop trace 只有问题文本的 meta 重复）——`_forward` 现在跳过 loop 的 meta/done（终态由服务统一发）。联调截图已随浏览器交付页保留；CI frontend-build 矩阵加入 `frontend/`（三套前端并行构建，旧两套在替代验收后移除）。FAKE 冒烟服务器明确标注非生产入口、产出非结论（AGENTS.md 约束不破）。

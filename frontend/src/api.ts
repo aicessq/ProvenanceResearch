@@ -1,0 +1,97 @@
+/** /api/v1 客户端：任务生命周期 + SSE v1（EventSource 自动携带 Last-Event-ID 续传）。 */
+
+import type { Problem, SseEvent, TaskList, TaskView } from "./types";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const resp = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!resp.ok) {
+    let problem: Problem | null = null;
+    try {
+      problem = (await resp.json()) as Problem;
+    } catch {
+      /* 非 problem+json */
+    }
+    throw new ApiError(problem?.detail ?? `请求失败: ${resp.status}`, problem);
+  }
+  return (await resp.json()) as T;
+}
+
+export class ApiError extends Error {
+  problem: Problem | null;
+  constructor(message: string, problem: Problem | null) {
+    super(message);
+    this.problem = problem;
+  }
+}
+
+export const api = {
+  listTasks: () => request<TaskList>("/api/v1/tasks"),
+  getTask: (taskId: string) => request<TaskView>(`/api/v1/tasks/${encodeURIComponent(taskId)}`),
+  createTask: (query: string) =>
+    request<TaskView>("/api/v1/tasks", { method: "POST", body: JSON.stringify({ query }) }),
+  cancelTask: (taskId: string) =>
+    request<{ task_id: string; status: string }>(`/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+    }),
+  deleteTask: (taskId: string) =>
+    request<{ task_id: string; deleted: boolean }>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+    }),
+};
+
+export interface StreamHandlers {
+  onEvent: (event: SseEvent) => void;
+  onError: (message: string) => void;
+  onOpen?: () => void;
+}
+
+/** 打开任务 SSE 流。返回 close()；done/error(fatal) 终态自动收流。 */
+export function openTaskStream(taskId: string, handlers: StreamHandlers): () => void {
+  const source = new EventSource(`/api/v1/tasks/${encodeURIComponent(taskId)}/events`);
+  const types = [
+    "meta",
+    "plan",
+    "tool_call",
+    "tool_result",
+    "source_status",
+    "evidence",
+    "token_delta",
+    "citation",
+    "done",
+    "error",
+  ] as const;
+
+  const finish = () => source.close();
+  let closed = false;
+  const close = () => {
+    closed = true;
+    source.close();
+  };
+
+  source.onopen = () => handlers.onOpen?.();
+  source.onerror = () => {
+    // EventSource 断线会自动带 Last-Event-ID 重连；只有显式关闭后才报错
+    if (!closed) handlers.onError("连接中断，正在用 Last-Event-ID 重连续传…");
+  };
+
+  for (const type of types) {
+    source.addEventListener(type, (raw) => {
+      const message = raw as MessageEvent;
+      try {
+        const event = JSON.parse(message.data) as SseEvent;
+        handlers.onEvent(event);
+        const payload = event.payload as { fatal?: boolean };
+        if (event.type === "done" || (event.type === "error" && payload.fatal === true)) {
+          finish();
+        }
+      } catch {
+        handlers.onError("事件解析失败");
+      }
+    });
+  }
+
+  return close;
+}
