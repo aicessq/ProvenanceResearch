@@ -47,12 +47,14 @@ ROADMAP_PHASES = (
     "P1（历史）",
     "P2（历史）",
     "P0R",
+    "P2.5",
     "P3a",
     "P3b",
     "P3c",
     "P3d",
     "P4",
     "P5",
+    "硬化轮",
 )
 
 # 自撰文档：这些文件由本仓库维护，链接必须可达。
@@ -63,6 +65,7 @@ SELF_AUTHORED_DOCS = (
     "docs/roadmap.md",
     "docs/decisions.md",
     "docs/testing.md",
+    "docs/execution-plan.md",
     "frontend/README.md",
     "eval/README.md",
     "eval/corpus/README.md",

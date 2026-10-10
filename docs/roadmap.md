@@ -1,6 +1,7 @@
 # 迁移与演进路线图及阶段验收
 
-更新：2026-09-18。根 `AGENTS.md` 的阶段验收以本文件为准。**未达本阶段验收，不进入下一阶段；文档已修改不代表功能已完成。**
+更新：2026-10-10。根 `AGENTS.md` 的阶段验收以本文件为准。**未达本阶段验收，不进入下一阶段；文档已修改不代表功能已完成。**
+执行顺序（2026-10-10 重排，见 [execution-plan.md](execution-plan.md)）：**P2.5 → P3a → P3c（文本先行）→ P3d → P4 → P5 → P3b → 硬化轮**。各阶段验收标准不变，仅调整执行次序与 P3c 前置。
 
 ## 编号与当前状态
 
@@ -13,6 +14,7 @@
 | P1（历史） | 平移 RAG_sec | 搬运及 96 个非 integration 测试通过；34 个 integration 测试尚未验证 |
 | P2（历史） | 平移 MultiAgentIR | 搬运及 47 个原测试通过，不证明真实 graph/工具/云协议已通过 |
 | P0R | 重冻结 Agentic、扩源、多模态与全云模型规格 | 本轮更新文档；供应商/协议选择尚未完成，不实现业务代码 |
+| P2.5 | 安全与基础修复（SSRF、fake success、key routing） | 未开始 |
 | P3a | 云模型 Adapter 与配置/索引身份 | 未开始 |
 | P3b | PDF、云 OCR/vision 与可溯源入库 | 未开始 |
 | P3c | KB/Tavily/arXiv 工具与来源 Registry | 未开始 |
@@ -55,6 +57,13 @@
 - **内容**：版本化 Evidence/ToolCall/Source Adapter，页/区域/资产语义，云 LLM/embedding/reranker/OCR/vision 配置与失败矩阵，预算与终止策略，云出站授权，索引重建/回滚；供应商稍后由用户选择，不预设所有供应商兼容 OpenAI。
 - **验收**：设计、路线图、决策、README、根模板无互相矛盾的生产目标；移除本地模型路径要求；每类启用能力确认具体 provider/model/协议/维度/版本/限额与数据留存条款；预算与数据授权可测试；待接入值保持空而不是伪默认。文档一致性通过不等于供应商接入完成。
 
+## P2.5 — 安全与基础修复
+
+- **目标**：消除公开仓库中最影响可信度的安全问题：DRS 模型测试接口 SSRF、fake success 行为、跨 provider 取 key。
+- **前置**：基线轮测试基线保持绿（KE 96 / researcher 47）；不引入新功能、不顺手重构。
+- **内容**：0.1 `POST /models/test` 增加 provider/host allowlist——仅受信 HTTPS、密钥只发绑定主机，拒绝 localhost/私网 IP/file:// 与非允许 provider；0.2 删除 Tavily 失败返回 mock result 与 LLM 失败回退本地抽取答案，统一抛 `ProviderUnavailableError`，由上层决定 retry/fallback/refusal；0.3 key routing 严格绑定 provider→capability→key pool，禁止跨 slot 取 key 与跨 slot 取 api_base。
+- **验收**：SSRF 用例（localhost、私网 IP、file://、非允许 provider）全部拒绝且不发出站请求；fake success 路径删除后 KE/researcher 测试全绿（旧断言按新契约改写并记录理由）；key 只来自模型自身绑定；两套基线测试与仓库契约保持绿；decisions.md 追加记录。
+
 ## P3a — 云模型与配置契约
 
 - **目标**：所有模型推理走云端 Adapter；本机继续存储、文件解析及确定性检索。按配置、协议、可靠性、索引身份四个小切片执行，不大改两套应用。
@@ -72,7 +81,7 @@
 ## P3c — 工具与搜索源 Registry
 
 - **目标**：KB 检索、Tavily Web 搜索与 arXiv 学术搜索都成为 Agent 可调用工具，新增 provider 不修改核心 Agent。
-- **前置**：P3a 的查询/云配置契约与 P3b Evidence 溯源稳定。
+- **前置**：P3a 的查询/云配置契约。**2026-10-10 起文本先行：不再等待 P3b**——Evidence v2 先落文本链路（locator 支持 page/chunk/url/section，bbox 等多模态字段留空占位），P3b 补齐坐标与资产溯源。
 - **内容**：`kb_search`、`web_search`、`arxiv_search`、`source_fetch`、`evidence_read`，schema 白名单、provider 能力/健康/限额、结构化错误、来源身份/去重；arXiv ID/版本/DOI、摘要与正文范围；受控获取全文/PDF与 SSRF 防护。
 - **验收**：`tests_bridge` 验证 KB 带 doc/version/chunk/index、Web 带 URL/fetched_at、论文带 arXiv ID/版本；所有来源输出同构 Evidence；Tavily/arXiv 均有 fake provider 行为测试，不仅定义插件入口；单源故障不影响健康源，生产不返回 example.com mock；跨源同论文合并保留发现 provenance，不同版本不误并；全文失败不以摘要支撑全文断言；节流/取消/大小限制/逐跳 SSRF 与工具结果注入样例通过。
 
@@ -87,7 +96,7 @@
 
 - **目标**：量化 Agentic RAG、arXiv、OCR/vision 的实际增益、费用及失败行为，而非只证明 HTTP 200。
 - **前置**：P3d 验收；跑分前冻结数据集、人工标注规则、模型/索引/提取/prompt 版本、预算、质量非回归容差与分层质量/延迟/费用门槛，写入 `eval/`。阈值未冻结则不进入正式评测。
-- **内容**：旧 golden set 加外网必答、论文摘要/全文、多步、无据拒答、扫描/混合/图像样本；A KB-only、B external-only、C 固定混合、D 同源同模型同预算的 Agentic 各 3 次，补去 arXiv/去 OCR-vision/禁追加检索/去云 rerank 消融。
+- **内容**：旧 golden set 加外网必答、论文摘要/全文、多步、无据拒答、扫描/混合/图像样本；A KB-only、B external-only、C 固定混合、D 同源同模型同预算的 Agentic 各 3 次，补去 arXiv/去 OCR-vision/禁追加检索/去云 rerank 消融。**第一轮（2026-10-10 计划）先用 15–20 个代表问题**覆盖 KB/web/paper/multi-step/impossible question 建立 A/B/C baseline，不等完整 56 题；完整题集与消融仍按上句执行。
 - **验收**：可复现 runner 输出 指标为 Recall@5/10/20（截 top-8 前）、MRR、引用准确率、拒答准确率、答案正确率、误拒率、工具/终止合规、来源覆盖、OCR CER/WER、视觉正确率、页/区域引用准确率、p95 延迟、token/API 费用与 provider 失败/重试；结果含均值/波动/置信区间和成本未知标记。遵守预冻结门槛，无登记证据/越权/伪证据/超预算安全样例全部拒绝。取消“融合所有指标同时超过每个单源”要求，失败则分析并记录决策后重跑，不能事后放宽阈值让其通过。
 
 ## P5 — 统一前端及云服务配置
@@ -96,6 +105,13 @@
 - **前置**：P3d HTTP/SSE/Evidence/ToolCall 契约冻结、P4 验收；配置接口有认证、权限、加密及出站授权。
 - **内容**：复用旧 Vue 的 SSE/Pinia 可用逻辑但适配新契约；展示计划摘要、工具状态与终止原因，不展示隐私推理；PDF 页跳转、OCR bbox/图片区域定位，区分原文/摘要/视觉推断。UI 设置云 provider/model/base_url/key、来源与受控参数，启动基础设施/加密主密钥仍走环境；支持验证及恢复环境值。
 - **验收**：截图验收及接口联调通过；引用跳转真实原页/区域/图片，论文版本和内容范围明确，多会话不串流、取消/重连/拒答可观察；密钥不进 localStorage/GET/日志，配置验证失败保留旧值，主密钥缺失/弱/格式不符拒绝凭证保存，轮换失败不丢旧密文；云出站逐能力授权与留存提示可见，provider/endpoint/model 变更不能沿用旧授权；embedding 切换触发索引迁移。旧前端仅在替代功能验收后删除，同时更新其 CI 构建任务。
+
+## 硬化轮 — 生产硬化（JWT、限流、观测、Compose）
+
+- **目标**：最终收尾，把可演示系统提升到接近生产形态。
+- **前置**：P4 首轮 baseline 与 P5 Demo UI 第一版验收；P3b 按执行顺序可在硬化轮前后完成（见 [execution-plan.md](execution-plan.md)）。
+- **内容**：恢复 JWT 认证；API 限流（query、ingest）；structured logs 与 metrics；Docker Compose 最终形态（postgres、redis、qdrant、backend、worker、frontend）。
+- **验收**：未认证请求被拒且限流生效；日志/指标可查；Compose 全栈可起并通过冒烟；README 换为 [execution-plan.md](execution-plan.md) 所述 Portfolio 描述；三个失败案例（无证据拒答、来源冲突、provider failure）可演示。
 
 ## CI/CD 与测试分层
 
