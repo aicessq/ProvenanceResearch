@@ -175,7 +175,7 @@ class AgenticTaskService:
                         views.append(loaded)
         return sorted(views, key=lambda v: v.get("created_at", ""), reverse=True)
 
-    def cancel_task(self, task_id: str) -> str:
+    async def cancel_task(self, task_id: str) -> str:
         """返回 cancelled / not_running / not_found。幂等：重复取消不二次打断收尾。"""
         record = self._tasks.get(task_id)
         handle = self._running.get(task_id)
@@ -187,6 +187,14 @@ class AgenticTaskService:
             return "not_running"
         record["cancel_requested"] = True
         handle.cancel()
+        # 取消可能发生在 _run 首个 await 之前（协程从未启动、不会自补终态）；
+        # 等它落下后若仍无终态事件，由这里补唯一终态，订阅方不会挂死
+        try:
+            await handle
+        except asyncio.CancelledError:
+            pass
+        if not record.get("finalized"):
+            await self._finish_cancelled(task_id)
         return "cancelled"
 
     async def delete_task(self, task_id: str) -> str:
@@ -272,17 +280,22 @@ class AgenticTaskService:
                 answer=outcome,
                 updated_at=now_iso(),
                 completed_at=now_iso(),
+                finalized=True,
             )
 
         except asyncio.CancelledError:
-            await self._persist_terminal(task_id, "cancelled")
-            await log.append(task_id, "done", {"task_status": "cancelled"})
-            record.update(status="cancelled", updated_at=now_iso(), completed_at=now_iso())
+            await self._finish_cancelled(task_id)
         except Exception as exc:  # noqa: BLE001 —— 任务级失败隔离
             logger.exception("agentic task %s failed", task_id)
             await self._finish_failed(task_id, "internal_error", f"{type(exc).__name__}: {exc}"[:200])
         finally:
             self._running.pop(task_id, None)
+
+    async def _finish_cancelled(self, task_id: str) -> None:
+        record = self._tasks[task_id]
+        await self._persist_terminal(task_id, "cancelled")
+        await self._event_log.append(task_id, "done", {"task_status": "cancelled"})
+        record.update(status="cancelled", updated_at=now_iso(), completed_at=now_iso(), finalized=True)
 
     async def _finish_failed(self, task_id: str, code: str, message: str) -> None:
         record = self._tasks[task_id]
@@ -297,6 +310,7 @@ class AgenticTaskService:
             error={"code": code, "message": message},
             updated_at=now_iso(),
             completed_at=now_iso(),
+            finalized=True,
         )
 
     async def _forward(self, task_id: str, entry: dict) -> None:

@@ -122,7 +122,7 @@ def make_runtime(store, *, checker=None) -> AgenticRuntime:
         index_identity="idx",
     )
     return AgenticRuntime(
-        llm=ScriptLLM([]),  # 由 factory 替换为 _SplitLLM（planner/writer 分脚本）
+        llm=ScriptLLM([]),  # 由 factory 替换为 SplitLLM（planner/writer 分脚本）
         executor=ToolExecutor(tools=[kb]),
         store=store,
         budget=Budget(),
@@ -163,7 +163,7 @@ def test_answered_task_lifecycle_and_event_order() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(planner, AutoWriter(store.store))
+            runtime.llm = SplitLLM(planner, AutoWriter(store.store))
             return runtime
 
         service = service_with(factory)
@@ -202,7 +202,7 @@ def test_refusal_is_answer_outcome_not_task_failure() -> None:
 
         def factory():
             runtime = make_runtime(store.store)
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
             return runtime
 
         service = service_with(factory)
@@ -229,7 +229,7 @@ def test_citation_gate_failure_refuses_after_regeneration() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=NoChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
             return runtime
 
         service = service_with(factory)
@@ -254,13 +254,13 @@ def test_cancel_stops_task_with_single_terminal_event() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE], delay=60), AutoWriter(store.store))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE], delay=60), AutoWriter(store.store))
             return runtime
 
         service = service_with(factory)
         created = await service.create_task("取消测试")
         await asyncio.sleep(0.05)  # 让任务进入 running
-        assert service.cancel_task(created["task_id"]) == "cancelled"
+        assert await service.cancel_task(created["task_id"]) == "cancelled"
         view = await wait_terminal(service, created["task_id"])
 
         assert view["status"] == "cancelled"
@@ -279,14 +279,14 @@ def test_cancel_non_running_task_reports_not_running() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
             return runtime
 
         service = service_with(factory)
         created = await service.create_task("快速任务")
         await wait_terminal(service, created["task_id"])
-        assert service.cancel_task(created["task_id"]) == "not_running"
-        assert service.cancel_task("task_missing") == "not_found"
+        assert await service.cancel_task(created["task_id"]) == "not_running"
+        assert await service.cancel_task("task_missing") == "not_found"
 
     run_scenario(scenario())
 
@@ -320,7 +320,7 @@ def test_subscribe_after_completion_replays_full_stream() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
             return runtime
 
         service = service_with(factory)
@@ -340,7 +340,7 @@ def test_meta_carries_budget_overrides() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_DONE]), ScriptLLM([]))
             return runtime
 
         service = service_with(factory)
@@ -367,7 +367,7 @@ def test_delete_running_rejected_and_completed_deletes_with_events() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE], delay=60), AutoWriter(store.store))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE], delay=60), AutoWriter(store.store))
             return runtime
 
         service = AgenticTaskService(runtime_factory=factory, event_log=log)
@@ -375,7 +375,7 @@ def test_delete_running_rejected_and_completed_deletes_with_events() -> None:
         await asyncio.sleep(0.05)
         assert await service.delete_task(created["task_id"]) == "running"
 
-        service.cancel_task(created["task_id"])
+        await service.cancel_task(created["task_id"])
         await wait_terminal(service, created["task_id"])
         assert await service.delete_task(created["task_id"]) == "deleted"
         assert await service.get_task(created["task_id"]) is None
@@ -417,7 +417,7 @@ def test_lifecycle_persists_to_task_state_store() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=YesChecker())
-            runtime.llm = _SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
             return runtime
 
         service = AgenticTaskService(runtime_factory=factory, event_log=InMemoryEventLog(), task_store=stub)
@@ -434,7 +434,7 @@ def test_lifecycle_persists_to_task_state_store() -> None:
     run_scenario(scenario())
 
 
-class _SplitLLM:
+class SplitLLM:
     """planner / writer 分别喂脚本（真实 loop 中两者是同一个 LLM 对象）。"""
 
     def __init__(self, planner: ScriptLLM, writer: ScriptLLM) -> None:

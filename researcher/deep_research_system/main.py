@@ -15,6 +15,10 @@ from contextlib import asynccontextmanager
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+# 顶层契约包（providers/evidence/tools/agent）从仓库根导入（P3a–P3d）
+repo_root = Path(__file__).resolve().parents[2]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,10 +87,14 @@ def create_application() -> FastAPI:
     # 设置中间件
     from app.core.middleware import setup_middlewares
     setup_middlewares(app)
-    
+
+    # /api/v1 错误统一 problem+json，旧接口保持既有错误形状
+    from app.api.problem import install_error_handlers
+    install_error_handlers(app)
+
     # 添加 API 路由
     app.include_router(api_router, prefix="/api")
-    
+
     return app
 
 

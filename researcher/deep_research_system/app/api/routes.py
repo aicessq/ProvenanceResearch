@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from app.api.routes_health import router as health_router
 from app.api.routes_research import router as research_router
 from app.api.routes_models import router as models_router
+from app.api.routes_v1 import router as v1_router
 
 # 创建主 API 路由器
 api_router = APIRouter()
@@ -18,6 +19,9 @@ api_router.include_router(health_router)
 # 包含研究和模型路由
 api_router.include_router(research_router, tags=["research"])
 api_router.include_router(models_router, tags=["models"])
+
+# /api/v1 公共契约（P3d 后半）：agentic 任务 + 版本化 SSE
+api_router.include_router(v1_router, tags=["research-v1"])
 
 # 根端点，提供 API 基本信息
 @api_router.get("/")

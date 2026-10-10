@@ -151,6 +151,12 @@ class ExceptionHandlingMiddleware(BaseHTTPMiddleware):
                 message = f"{type(exc).__name__}: {str(exc)}"
                 details = None
 
+            # /api/v1 错误统一 problem+json（design.md §8）；旧接口保持既有形状
+            from app.api.problem import is_v1_path, problem_response
+
+            if is_v1_path(request):
+                return problem_response(request, status=500, code="internal_error", detail=message)
+
             return JSONResponse(
                 status_code=500,
                 content=error_response(
