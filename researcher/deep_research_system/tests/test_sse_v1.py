@@ -55,6 +55,9 @@ class FakeRedis:
             return [(eid, dict(fields)) for eid, fields in self.streams.get(key, []) if in_range(eid)]
         if cmd == "EXPIRE":
             return 1
+        if cmd == "DEL":
+            (key,) = args
+            return 1 if self.streams.pop(key, None) is not None else 0
         raise AssertionError(f"unexpected redis command: {command}")
 
 
@@ -205,6 +208,17 @@ def test_persist_failure_degrades_to_live_only(backend) -> None:
         event = await log.append("t1", "meta", {})
         got = await asyncio.wait_for(sub.next_event(timeout=1.0), timeout=2.0)
         assert got is not None and got.event_id == event.event_id
+        assert await log.replay("t1") == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("backend", ["memory", "redis"])
+def test_drop_removes_stream(backend) -> None:
+    async def scenario() -> None:
+        log = LOG_FACTORIES[backend]()
+        await log.append("t1", "meta", {})
+        await log.drop("t1")
         assert await log.replay("t1") == []
 
     asyncio.run(scenario())

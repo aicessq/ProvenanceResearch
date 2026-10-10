@@ -160,6 +160,9 @@ class _BaseEventLog:
     async def _find(self, task_id: str, sequence: int) -> SseEvent | None:
         raise NotImplementedError
 
+    async def _drop_stream(self, task_id: str) -> None:
+        raise NotImplementedError
+
     # ---- 公共语义 ----
     async def append(self, task_id: str, event_type: str, payload: dict[str, Any]) -> SseEvent:
         if event_type not in EVENT_TYPES:
@@ -203,6 +206,14 @@ class _BaseEventLog:
             raise SseV1Error(f"Last-Event-ID 不属于该任务或已过期: {last_event_id}")
         return sequence
 
+    async def drop(self, task_id: str) -> None:
+        """删除任务事件流（任务删除时调用）。"""
+        async with self._lock:
+            self._sequences.pop(task_id, None)
+            self._terminal.pop(task_id, None)
+            self._subs.pop(task_id, None)
+            await self._drop_stream(task_id)
+
     def _attach(self, task_id: str, queue: asyncio.Queue) -> None:
         self._subs.setdefault(task_id, []).append(queue)
 
@@ -238,6 +249,9 @@ class InMemoryEventLog(_BaseEventLog):
             if event.sequence == sequence:
                 return event
         return None
+
+    async def _drop_stream(self, task_id: str) -> None:
+        self._streams.pop(task_id, None)
 
 
 class RedisStreamEventLog(_BaseEventLog):
@@ -306,6 +320,12 @@ class RedisStreamEventLog(_BaseEventLog):
             except Exception:
                 return None
         return None
+
+    async def _drop_stream(self, task_id: str) -> None:
+        try:
+            await self._redis.execute_command("DEL", self._key(task_id))
+        except Exception as exc:
+            logger.warning(f"Redis Stream DEL 失败: {self._key(task_id)} - {type(exc).__name__}")
 
 
 def format_sse(event: SseEvent) -> str:
