@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 import httpx
 from pydantic import BaseModel
 
+from app.core.errors import ProviderUnavailableError
 from app.schemas.model import ModelSpec
 
 logger = logging.getLogger(__name__)
@@ -64,22 +65,28 @@ class LLMClient:
             async for chunk in self._stream_openai(model, prompt, system_prompt, api_key, result_collector):
                 yield chunk
 
+    def _resolve_base_url(self, model: ModelSpec) -> str:
+        """严格绑定端点（P2.5-0.3）：只用模型自身 api_base 或其 provider 官方默认。
+
+        禁止跨 slot 取 api_base——那会把本模型的 key 发往其他 slot 的端点。
+        """
+        base_url = (model.api_base or "").strip()
+        if not base_url:
+            from app.core.config import get_config
+
+            base_url = (get_config().settings.get_model_api_base(model.provider) or "").strip()
+        if not base_url:
+            raise ProviderUnavailableError(
+                f"模型 {model.name} 未绑定 api_base 且 provider {model.provider} 无官方默认端点",
+                details={"model": model.name, "provider": model.provider},
+            )
+        return base_url.rstrip("/")
+
     async def _stream_openai(
         self, model: ModelSpec, prompt: str, system_prompt: str, api_key: str,
         result_collector: StreamResult | None,
     ) -> AsyncGenerator[str, None]:
-        import os
-        base_url = model.api_base or ""
-        if not base_url:
-            # Try slot-based env var fallback
-            for slot in ["search", "analysis", "reasoning", "writing"]:
-                val = os.getenv(f"MODEL_{slot.upper()}_API_BASE", "")
-                if val:
-                    base_url = val
-                    break
-        if not base_url:
-            base_url = "https://api.openai.com/v1"
-        base_url = base_url.rstrip("/")
+        base_url = self._resolve_base_url(model)
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -177,17 +184,7 @@ class LLMClient:
     async def _call_openai_compatible(
         self, model: ModelSpec, prompt: str, system_prompt: str, api_key: str,
     ) -> LLMCallResult:
-        import os
-        base_url = model.api_base or ""
-        if not base_url:
-            for slot in ["search", "analysis", "reasoning", "writing"]:
-                val = os.getenv(f"MODEL_{slot.upper()}_API_BASE", "")
-                if val:
-                    base_url = val
-                    break
-        if not base_url:
-            base_url = "https://api.openai.com/v1"
-        base_url = base_url.rstrip("/")
+        base_url = self._resolve_base_url(model)
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

@@ -29,6 +29,11 @@ class APIKeyPool:
                 self._slot_key_env[model_name] = kc.env_name
 
     def get_api_key(self, model_name: str) -> str | None:
+        """返回该模型自身绑定的 key（P2.5-0.3 严格绑定）。
+
+        key 只来自 models.yaml 为该模型登记的 env（provider → capability → key pool），
+        禁止回退到其他 slot/provider 的 key；没有即返回 None，由上层决定失败方式。
+        """
         config = get_config()
         keys = self._keys.get(model_name, [])
         if keys:
@@ -47,12 +52,6 @@ class APIKeyPool:
                     if val:
                         return val
                 idx += 1
-
-        # fallback: try all slot-based env vars (MODEL_SEARCH_API_KEY, etc.)
-        for slot in ["search", "analysis", "reasoning", "writing"]:
-            val = os.getenv(f"MODEL_{slot.upper()}_API_KEY", "")
-            if val:
-                return val
 
         return None
 

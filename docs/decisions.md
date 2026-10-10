@@ -236,3 +236,11 @@
 - 理由：Evidence-grounded 系统的前提是证据为真；mock 结果与本地抽取答案都属于无 provenance 的伪证据。AGENTS.md 已有"缺云配置显式失败、不得静默降级"约束，本轮把生产路径落实到该约束。eval 逐条已有 try/except 记录 error_message，异常传播语义正确。
 - 测试迁移记录：KE `test_answer_generator` 原第 2 例断言本地抽取答案（"基于当前检索到的资料"），正是要删除的行为——改写为 4 例：无证据拒答不变、LLM 失败抛 `ProviderUnavailableError`、stub LLM 走真实生成路径、LLM 输出非 JSON 抛异常。researcher 新增 `test_search_service` 3 例（缺 key/调用失败抛异常、成功返回真实结果且无 mock URL）。
 - 验收：KE 98 passed（原 96 + 测试改写净增 2）、researcher 68 passed（原 47 基线 + 0.1 的 18 + 本轮 3）；两套基线原有行为测试未被破坏。
+
+## 2026-10-10 P2.5-0.3 key/端点严格绑定（provider → capability → key pool）
+
+- 决定：三处"跨 slot 找任意配置"全部删除——`APIKeyPool.get_api_key` 不再兜底扫 `MODEL_*_API_KEY`（无自身绑定 key 即返回 None）；`router._has_api_key` 只认 models.yaml 为该模型登记的 key env（其他 provider 的 key 不能让本模型显得可用）；`LLMClient._resolve_base_url` 不再兜底扫 `MODEL_*_API_BASE`（否则会把 A 模型的 key 发往 B slot 的端点），缺失时只回退本 provider 官方默认 base，仍无则抛 `ProviderUnavailableError`。
+- 替代：原兜底链（任意 slot key → 任意 slot base）意味着密钥可被发往非绑定主机，且路由会把"别的 provider 有 key"误判为本模型可用——与"密钥只发绑定主机"（2026-09-18）直接冲突。
+- 理由：key routing 的可信度建立在"谁的 key 只走谁的端点"上；宽松兜底让 SSRF 修复（0.1）形同虚设（合法 host 校验过了，但 key 可以搭错车）。显式失败（None/异常）交给上层处理，与 0.2 的 ProviderUnavailableError 语义一致。
+- 测试迁移记录：新增 `tests/test_key_binding.py` 6 例——自身 key 缺失时返回 None 而非他 slot key、只用自身绑定 key、路由可用性忽略他 slot key、端点解析永不取他 slot base、优先自身绑定、全无绑定时抛异常。原有 key_pool/router 测试未改动（断言的都是本就正确的行为）。
+- 验收：researcher 74 passed（47 基线 + 0.1 的 18 + 0.2 的 3 + 本轮 6）。

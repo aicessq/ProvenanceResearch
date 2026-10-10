@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 
+from app.core.config import get_config
 from app.model_pool.key_pool import APIKeyPool
 from app.model_pool.registry import ModelRegistry
 from app.schemas.model import ModelSpec
@@ -13,17 +14,17 @@ logger = logging.getLogger(__name__)
 COST_RANK = {"low": 0, "mid": 1, "high": 2}
 LATENCY_RANK = {"fast": 0, "medium": 1, "slow": 2}
 
-_SLOT_KEYS = [f"MODEL_{s.upper()}_API_KEY" for s in ("search", "analysis", "reasoning", "writing")]
-
 
 def _has_api_key(model: ModelSpec) -> bool:
-    """Check if any API key is available for this model."""
-    # Provider-based env var (e.g. DEEPSEEK_API_KEY)
-    if os.getenv(f"{model.provider.upper()}_API_KEY", ""):
-        return True
-    # Any slot-based env var
-    for k in _SLOT_KEYS:
-        if os.getenv(k, ""):
+    """Check if THIS model's own bound key is available (P2.5-0.3 严格绑定)。
+
+    只认 models.yaml 为该模型登记的 key env；其他 slot/provider 的 key
+    不能让本模型显得"可用"。
+    """
+    config = get_config()
+    for entry in config.get_effective_api_keys().get(model.name, []):
+        env_name = entry["env_name"]
+        if os.getenv(env_name, "") or getattr(config.settings, env_name, ""):
             return True
     return False
 
