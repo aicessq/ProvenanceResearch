@@ -101,3 +101,14 @@
 | 人工题集校验 | `python3 eval/questions/validate_questions.py` | 通过 |
 
 计数变化说明：KE 96 → 98 是 P2.5-0.2 测试迁移净增（`test_answer_generator` 由 2 例改写为 4 例：原第 2 例断言的本地抽取回退正是被删除的 fake success，详见 decisions 2026-10-10）；researcher 47 → 74 为 P2.5 三项新增（0.1 端点防护 18 例、0.2 搜索服务 3 例、0.3 key 绑定 6 例），原有 47 例零改动全绿。34 个 integration、真实云 smoke、前端构建本轮未触碰（前端零改动）。
+
+## 2026-10-10 P3a（providers 适配层）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| providers 契约测试 | 仓库根 `knowledge_engine/.venv/bin/python -m pytest providers/tests/ -q` | `25 passed` |
+| knowledge_engine | 同上 venv，`-m pytest knowledge_engine/backend/tests -c knowledge_engine/pyproject.toml -q` | `98 passed, 34 deselected`（零改动，回归确认） |
+| researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `74 passed`（零改动，回归确认） |
+| 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过 |
+
+providers 为新增顶层包（纯 httpx+pytest、无凭证、不联网，fake/recorded 响应）；CI 新增 `providers-tests` 作业（httpx==0.28.1、pytest==9.1.1 钉版）。真实云 smoke 照旧不进普通 PR。providers 测试建议用带 httpx 的任意 3.12+ 环境；KE venv 因复用 torch 环境跑它没有额外成本。

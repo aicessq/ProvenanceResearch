@@ -15,7 +15,7 @@
 | P2（历史） | 平移 MultiAgentIR | 搬运及 47 个原测试通过，不证明真实 graph/工具/云协议已通过 |
 | P0R | 重冻结 Agentic、扩源、多模态与全云模型规格 | 本轮更新文档；供应商/协议选择尚未完成，不实现业务代码 |
 | P2.5 | 安全与基础修复（SSRF、fake success、key routing） | 未开始 |
-| P3a | 云模型 Adapter 与配置/索引身份 | 未开始 |
+| P3a | 云模型 Adapter 与配置/索引身份 | 2026-10-10 部分完成：providers 层错误六分类、LLM 一真一假、EmbeddingIdentity/CollectionBinding 与 25 例契约测试落地；stream/tool-call/索引迁移贯通未完 |
 | P3b | PDF、云 OCR/vision 与可溯源入库 | 未开始 |
 | P3c | KB/Tavily/arXiv 工具与来源 Registry | 未开始 |
 | P3d | Agentic RAG、Reader、引用闸门、公共接口/SSE | 未开始 |
