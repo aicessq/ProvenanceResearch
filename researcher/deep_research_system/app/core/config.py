@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # 服务器配置
-    HOST: str = "0.0.0.0"
+    HOST: str = "127.0.0.1"
     PORT: int = 8000
     RELOAD: bool = True
     LOG_LEVEL: str = "info"

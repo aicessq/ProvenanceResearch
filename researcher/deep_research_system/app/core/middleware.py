@@ -205,6 +205,11 @@ def setup_middlewares(app: FastAPI) -> None:
         allow_headers=["*"],
     )
     
+    # 指标中间件（硬化轮）：按状态码计数，/metrics 暴露
+    from app.core.metrics import MetricsMiddleware
+
+    app.add_middleware(MetricsMiddleware)
+
     # 请求ID中间件
     app.add_middleware(RequestIDMiddleware)
     

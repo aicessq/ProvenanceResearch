@@ -316,3 +316,11 @@
 - 图注-资产关联：页内图像资产登记为 `asset` 型 Evidence（locator.asset_id/asset_hash/bbox + 图注文本同证据携带），"child 不切断图注与资产联系"落实为同一 Evidence 上的绑定；原生页与 OCR 页都保留该关联。
 - 范围取舍（诚实声明）：Celery 心跳/租约 fencing、真实 KE 上传→worker→index→检索 integration（roadmap P3b 后半）**本轮不做**——需要 Docker/PG/Redis/Qdrant 基建与 P1/P2 真实入库迁移，属于"硬化轮/KE 接入"序列；OCR/vision 实际质量按 roadmap 归 P4 分层裁决。vendor 选择：首个真实 OCR 选百度（协议简单、bbox 可用），首个 vision 选 OpenAI 兼容 VLM（用户可自选 base_url，无绑定）；后续加供应商只加 adapter 不动核心。
 - 验收：新契约 128 例全绿（+13）；P3b 验收要点中"fixture 覆盖原生/扫描/混合/旋转/含图、页码/bbox/hash 到 citation 不丢、文本层与 OCR 不重复、fake 响应/低质量/失败可测、失败页不发布完整版本"均有断言。KE 98、researcher 125 回归确认。
+
+## 2026-10-11 硬化轮：JWT 认证、API 限流、观测与 Compose 最终形态
+
+- 决定：**认证**——`app/core/auth.py` JWT HS256（pyjwt==2.10.1，装前已说明；不手写 JWT 避免算法混淆风险）。`AUTH_ENABLED=true` 时 /api/v1 全部受保护（`/auth/token`、`/metrics` 公开），未认证 401、配置缺失/弱密钥（<32 字符）503 auth_not_configured——显式失败不静默放行、不用临时密钥；bootstrap 账号（AUTH_BOOTSTRAP_USER/PASSWORD）以常数时间比较校验，token 短 TTL 只含 sub/iat/exp。默认 `AUTH_ENABLED=false` 仅限本机开发（配套收紧 HOST 默认 0.0.0.0→127.0.0.1，design.md §9"默认仅本机访问；开放到网络前必须认证"）；前端登录层 token 只驻内存不落 localStorage。旧 `/api/*` 兼容期不加认证（旧前端无登录态，且默认仅本机监听），随旧前端一并退场。
+- **限流**——`app/core/rate_limit.py` 进程内固定窗口（query=20/min 提问、ingest=10/min 配置写、default=120/min），429 problem+json + Retry-After；单实例内存实现与多实例边界裁决一致（分布式限流是明确非目标），进程重启清零可接受。
+- **观测**——`LOG_FORMAT=json` 切 loguru serialize（结构化日志行）；`GET /api/v1/metrics` Prometheus 文本（http_requests_total/auth_failures_total/rate_limited_total/task_terminal_total，纯内存计数，不含任何用户内容/密钥）。
+- **Compose 最终形态**——root docker-compose 六服务（postgres/redis/qdrant/backend/worker/frontend）+ 三个 Dockerfile（researcher 后端含顶层契约包、KE worker（镜像含历史 torch 依赖——全云迁移完成后按 roadmap 瘦身）、frontend 多阶段 nginx 反代 /api 且关闭缓冲以支持 SSE）。`docker compose config` 静态校验通过；**本机无 Docker 守护进程，全栈起栈冒烟未执行**（唯一待用户项）。README 换 execution-plan 的 Portfolio 描述 + 三失败案例演示说明（无证据拒答/来源冲突/provider failure，前两者有自动化断言，后者由 P2.5/P3a 契约覆盖）。
+- 验收：researcher 132（+7 硬化）、新契约 128、KE 98、前端构建全绿；"未认证请求被拒且限流生效、日志/指标可查、README 换描述、失败案例可演示"均有实现与断言，"Compose 全栈可起并通过冒烟"待用户环境执行。

@@ -108,6 +108,8 @@
 
 ## 硬化轮 — 生产硬化（JWT、限流、观测、Compose）
 
+> **2026-10-11 状态：交付**。JWT HS256 认证（AUTH_ENABLED 门 + 强密钥/bootstrap 显式配置、401/503 problem+json、前端登录层 token 只驻内存）；限流（query/ingest/default 分桶、429+Retry-After、单实例内存窗口）；观测（LOG_FORMAT=json 结构化日志、/metrics Prometheus 文本、任务终态计数）；Compose 最终形态六服务（postgres/redis/qdrant/backend/worker/frontend + 三 Dockerfile，`docker compose config` 静态校验通过；本机无 Docker 守护，全栈冒烟待用户运行）；README 换 Portfolio 描述 + 三个失败案例演示说明。硬化验收中"Compose 全栈可起并通过冒烟"为唯一待用户执行项（本机无守护进程），其余各项有测试断言（researcher 132 例）。
+
 - **目标**：最终收尾，把可演示系统提升到接近生产形态。
 - **前置**：P4 首轮 baseline 与 P5 Demo UI 第一版验收；P3b 按执行顺序可在硬化轮前后完成（见 [execution-plan.md](execution-plan.md)）。
 - **内容**：恢复 JWT 认证；API 限流（query、ingest）；structured logs 与 metrics；Docker Compose 最终形态（postgres、redis、qdrant、backend、worker、frontend）。

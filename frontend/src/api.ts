@@ -1,12 +1,15 @@
 /** /api/v1 客户端：任务生命周期 + SSE v1（EventSource 自动携带 Last-Event-ID 续传）。 */
 
+import { ref } from "vue";
 import type { Problem, SseEvent, TaskList, TaskView } from "./types";
 
+/** 服务端要求认证时置位（App 弹登录层）；token 只驻内存。 */
+export const authRequired = ref(false);
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+  const resp = await fetch(path, { headers, ...init });
   if (!resp.ok) {
     let problem: Problem | null = null;
     try {
@@ -14,6 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* 非 problem+json */
     }
+    if (resp.status === 401) authRequired.value = true;
     throw new ApiError(problem?.detail ?? `请求失败: ${resp.status}`, problem);
   }
   return (await resp.json()) as T;
@@ -161,4 +165,26 @@ export const configApi = {
       method: "POST",
       body: JSON.stringify({ new_key: newKey }),
     }),
+};
+
+/** ---- 认证（AUTH_ENABLED=true 时必需；token 只驻内存，不落 localStorage） ---- */
+
+let authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+export const authApi = {
+  login: async (username: string, password: string) => {
+    const result = await request<{ access_token: string; token_type: string; expires_in: number }>(
+      "/api/v1/auth/token",
+      { method: "POST", body: JSON.stringify({ username, password }) },
+    );
+    authToken = result.access_token;
+    return result;
+  },
+  logout: () => {
+    authToken = null;
+  },
 };

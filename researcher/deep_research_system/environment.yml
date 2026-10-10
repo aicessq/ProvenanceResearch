@@ -48,6 +48,7 @@ dependencies:
       - langgraph-sdk==0.3.15
       - langsmith==0.8.5
       - loguru==0.7.3
+      - pyjwt==2.10.1
       - markupsafe==3.0.3
       - openai==2.38.0
       - orjson==3.11.9

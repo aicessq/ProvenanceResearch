@@ -1,12 +1,14 @@
-# research_agent 统一基础设施编排。
+# research_agent 统一编排（硬化轮最终形态：postgres / redis / qdrant / backend / worker / frontend）。
 #
-# 范围（2026-09-17 骨架轮）：
-#   - 只含三个基础设施服务：PostgreSQL 16 / Redis 7 / Qdrant。
-#   - 应用服务（knowledge_engine 的 backend/worker、researcher 入口）不在此文件，
-#     待迁移接线完成后追加，避免制造"假集成点"。
-#   - 模型（LLM / Embedding）与 Tavily 全部走环境变量（契约见 .env.example），代码内禁止硬编码。
+# 范围（2026-10-11 硬化轮）：
+#   - 基础设施：PostgreSQL 16 / Redis 7 / Qdrant（2026-09-17 骨架）。
+#   - 应用：backend（researcher 入口 /api/v1 + SSE）、worker（KE Celery ingest）、
+#     frontend（统一前端 + nginx 反代 /api）。模型/凭证/密钥全部走环境（.env.example 契约）。
+#   - 本机冒烟与默认绑定遵循"默认仅本机访问"；对外暴露前必须 AUTH_ENABLED=true
+#     并配置 AUTH_SECRET_KEY/AUTH_BOOTSTRAP_*（见 docs/design.md §9）。
 #
 # 端口与凭据全部可用 .env 覆盖；若与 RAG_sec 旧栈（cybersec-* 容器）同时运行，请改端口。
+# 本机未启动 Docker 守护进程时 compose 仅做静态校验（docs/testing.md）。
 
 name: research-agent
 
@@ -59,6 +61,55 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: researcher/deep_research_system/Dockerfile
+    container_name: ra-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      HOST: 0.0.0.0
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./knowledge_engine
+      dockerfile: Dockerfile
+    container_name: ra-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+    command: ["python", "-m", "celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: ra-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

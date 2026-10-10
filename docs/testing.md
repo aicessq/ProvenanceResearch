@@ -189,3 +189,16 @@ agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM �
 | researcher | multiagent 原命令 | `125 passed`（零改动，回归确认） |
 
 P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层页不再 OCR（不重复）；OCR blocks/bbox/阅读顺序/置信度进 Evidence（像素坐标归一化 0–1，无置信度不伪造）；OCR 失败→vision 兜底且图内文字/可观察/推断分开标注（推断不回填 raw_text）；混合文档必需页 OCR+vision 双失败 → 不发布"完整"版本 + 失败页原因显式报告，其他页不受拖垮；非必需页失败仍可发布但必须报告；rotation/asset hash/图注-资产关联从 parser 保留到 Evidence 与 citation_id（同身份重登记同 id）；低置信度标 low_quality 如实记录。真实适配器契约：百度 OCR（token 缓存/六分类/缺配置显式失败）、OpenAI 兼容 VLM（https-only/结构化输出/非法输出拒绝）。**未覆盖**（记录在 decisions）：Celery 心跳/租约 fencing 与真实 KE 上传→worker→index 集成（需 Docker/PG/Redis/Qdrant 基建与 P1/P2 迁移）、OCR/vision 实际质量分层（P4）。
+
+## 2026-10-11 硬化轮（JWT/限流/观测/Compose）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| researcher（含硬化 7 例） | multiagent `python -m pytest tests/ -q` | `132 passed`（+7：认证 4、限流 2、指标 1） |
+| 四新包+bridge+ingest | KE venv 六目录 | `128 passed`（零改动） |
+| knowledge_engine | KE venv 原命令 | `98 passed, 34 deselected`（零改动） |
+| 统一前端构建 | `cd frontend && npm run build`（含登录层） | 通过（43 模块） |
+| Compose 静态校验 | `cp .env.example .env && docker compose config -q` | 通过（六服务编排合法） |
+| 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过（README 换 Portfolio 描述后链接/契约不回归） |
+
+硬化验收逐项：未认证请求 401（auth_required/token_invalid）✓ 测试；弱/缺主密钥 503 auth_not_configured 不放行 ✓ 测试；限流 429+Retry-After（query/ingest/default 分桶、分客户端）✓ 测试；`/metrics`（http/auth_failures/rate_limited/task_terminal 计数）与 LOG_FORMAT=json 结构化日志 ✓；Compose 全栈**起栈冒烟未跑**（本机无 Docker 守护进程，静态校验通过；需用户 `docker compose up` 后按 README 冒烟）；三个失败案例演示路径写入 README（无证据拒答/来源冲突/provider failure），其中前两者已有自动化断言（refusal 测试、版本对照语料+证据并列），provider failure 由 P2.5/P3a 契约测试覆盖。JWT 依赖 pyjwt==2.10.1（装前已说明）。

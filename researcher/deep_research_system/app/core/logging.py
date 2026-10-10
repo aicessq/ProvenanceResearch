@@ -5,6 +5,7 @@
 
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -84,15 +85,24 @@ def setup_logging() -> None:
     # 移除默认的 loguru 处理器
     logger.remove()
 
-    # 添加控制台输出
-    logger.add(
-        sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level=settings.LOG_LEVEL.upper(),
-        colorize=True,
-        backtrace=True,
-        diagnose=True,
-    )
+    # 控制台输出：LOG_FORMAT=json 时为结构化 JSON 行（硬化轮观测），默认人读格式
+    if (os.environ.get("LOG_FORMAT") or "").strip().lower() == "json":
+        logger.add(
+            sys.stdout,
+            serialize=True,
+            level=settings.LOG_LEVEL.upper(),
+            backtrace=True,
+            diagnose=False,
+        )
+    else:
+        logger.add(
+            sys.stdout,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            level=settings.LOG_LEVEL.upper(),
+            colorize=True,
+            backtrace=True,
+            diagnose=True,
+        )
 
     # 拦截标准 logging 模块
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)

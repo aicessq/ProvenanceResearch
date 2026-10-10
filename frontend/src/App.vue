@@ -4,12 +4,26 @@ import ConversationView from "./components/ConversationView.vue";
 import EvidencePanel from "./components/EvidencePanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import TimelinePanel from "./components/TimelinePanel.vue";
+import { authApi, authRequired } from "./api";
 import { useConfigStore } from "./stores/config";
 import { useTasksStore } from "./stores/tasks";
 
 const store = useTasksStore();
 const config = useConfigStore();
 const question = ref("");
+const loginUser = ref("");
+const loginPassword = ref("");
+
+async function submitLogin() {
+  try {
+    await authApi.login(loginUser.value, loginPassword.value);
+    authRequired.value = false;
+    loginPassword.value = "";
+    await store.refresh();
+  } catch {
+    /* 错误由 authRequired/弹层保持可见 */
+  }
+}
 
 onMounted(() => {
   void store.refresh();
@@ -116,6 +130,16 @@ function onKeydown(event: KeyboardEvent) {
     </main>
 
     <SettingsPanel />
+
+    <div v-if="authRequired" class="login-overlay" role="dialog" aria-label="登录">
+      <form class="login-card" @submit.prevent="submitLogin">
+        <h2>需要登录</h2>
+        <p class="muted">服务已启用认证（AUTH_ENABLED=true）。token 只驻内存，不写 localStorage。</p>
+        <label>用户名<input v-model="loginUser" autocomplete="username" /></label>
+        <label>口令<input v-model="loginPassword" type="password" autocomplete="current-password" /></label>
+        <button class="primary" type="submit">登录</button>
+      </form>
+    </div>
   </div>
 </template>
 
@@ -188,6 +212,49 @@ function onKeydown(event: KeyboardEvent) {
   border-bottom: 1px solid oklch(0.5 0.14 25 / 0.5);
   color: oklch(0.85 0.1 25);
   font-size: 13px;
+}
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(0 0 0 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(360px, 92vw);
+  background: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.login-card h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.login-card input {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
 }
 
 .grid {

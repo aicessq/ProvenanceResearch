@@ -274,6 +274,9 @@ class AgenticTaskService:
 
             await self._persist_terminal(task_id, "completed", result=outcome)
             await log.append(task_id, "done", {"task_status": "completed", "answer": outcome})
+            from app.core.metrics import metrics as _metrics
+
+            _metrics.inc_task_terminal("completed")
             # 内存记录最后落：观察者看到终态时，持久化与终态事件已就绪
             record.update(
                 status="completed",
@@ -295,6 +298,9 @@ class AgenticTaskService:
         record = self._tasks[task_id]
         await self._persist_terminal(task_id, "cancelled")
         await self._event_log.append(task_id, "done", {"task_status": "cancelled"})
+        from app.core.metrics import metrics as _metrics
+
+        _metrics.inc_task_terminal("cancelled")
         record.update(status="cancelled", updated_at=now_iso(), completed_at=now_iso(), finalized=True)
 
     async def _finish_failed(self, task_id: str, code: str, message: str) -> None:
@@ -305,6 +311,9 @@ class AgenticTaskService:
             "error",
             {"fatal": True, "task_status": "failed", "error": {"code": code, "message": message}},
         )
+        from app.core.metrics import metrics as _metrics
+
+        _metrics.inc_task_terminal("failed")
         record.update(
             status="failed",
             error={"code": code, "message": message},

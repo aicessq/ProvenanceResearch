@@ -38,6 +38,7 @@ def problem_response(
     code: str,
     detail: str,
     title: str | None = None,
+    headers: dict | None = None,
 ) -> JSONResponse:
     payload = {
         "type": "about:blank",
@@ -48,17 +49,18 @@ def problem_response(
         "request_id": getattr(request.state, "request_id", None),
         "code": code,
     }
-    return JSONResponse(status_code=status, content=payload, media_type=PROBLEM_MEDIA_TYPE)
+    return JSONResponse(status_code=status, content=payload, media_type=PROBLEM_MEDIA_TYPE, headers=headers)
 
 
 class V1Problem(Exception):
     """v1 路由显式抛出的业务错误。"""
 
-    def __init__(self, *, status: int, code: str, detail: str, title: str | None = None) -> None:
+    def __init__(self, *, status: int, code: str, detail: str, title: str | None = None, headers: dict | None = None) -> None:
         self.status = status
         self.code = code
         self.detail = detail
         self.title = title
+        self.headers = headers
         super().__init__(detail)
 
 
@@ -67,7 +69,7 @@ def install_error_handlers(app) -> None:
 
     @app.exception_handler(V1Problem)
     async def _v1_problem(request: Request, exc: V1Problem):
-        return problem_response(request, status=exc.status, code=exc.code, detail=exc.detail, title=exc.title)
+        return problem_response(request, status=exc.status, code=exc.code, detail=exc.detail, title=exc.title, headers=exc.headers)
 
     @app.exception_handler(HTTPException)
     async def _http_exception(request: Request, exc: HTTPException):

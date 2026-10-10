@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.problem import V1Problem
 from app.schemas.agentic import (
@@ -28,7 +28,55 @@ from app.services.cloud_config_service import (
 from app.services.config_secrets import ConfigEncryptionError
 from app.services.sse_v1 import SseV1Error, format_sse
 
-router = APIRouter(prefix="/v1", tags=["research-v1"])
+
+# ---------------- 认证与限流（硬化轮） ----------------
+
+
+def require_auth(request: Request) -> None:
+    """AUTH_ENABLED=true 时强制 Bearer token；配置缺失显式拒绝，不静默放行。"""
+    from app.core.auth import AuthConfigError, AuthError, auth_enabled, verify_token
+    from app.core.metrics import metrics
+
+    if not auth_enabled():
+        return
+    header = request.headers.get("authorization") or ""
+    if not header.lower().startswith("bearer "):
+        metrics.inc_auth_failure()
+        raise V1Problem(status=401, code="auth_required", detail="缺少 Bearer token（POST /api/v1/auth/token 获取）")
+    try:
+        claims = verify_token(header[7:].strip())
+    except AuthConfigError as exc:
+        raise V1Problem(status=503, code="auth_not_configured", detail=str(exc))
+    except AuthError as exc:
+        metrics.inc_auth_failure()
+        raise V1Problem(status=401, code=exc.code, detail=str(exc))
+    request.state.principal = claims.get("sub", "")
+
+
+def rate_limit(bucket: str):
+    async def dependency(request: Request) -> None:
+        from app.core.metrics import metrics
+        from app.core.rate_limit import rate_limiter
+
+        allowed, retry_after = rate_limiter.check(bucket, request.client.host if request.client else "unknown")
+        if not allowed:
+            metrics.inc_rate_limited()
+            raise V1Problem(
+                status=429,
+                code="rate_limited",
+                detail=f"限流：{bucket} 桶超出每分钟额度",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+    return dependency
+
+
+router = APIRouter(
+    prefix="/v1",
+    tags=["research-v1"],
+    dependencies=[Depends(require_auth), Depends(rate_limit("default"))],
+)
+public_router = APIRouter(prefix="/v1", tags=["research-v1-auth"])
 
 _service: AgenticTaskService | None = None
 _config_service: CloudConfigService | None = None
@@ -61,7 +109,7 @@ def _task_not_found(task_id: str) -> V1Problem:
     return V1Problem(status=404, code="task_not_found", detail=f"任务不存在: {task_id}")
 
 
-@router.post("/tasks", response_model=TaskView, status_code=201)
+@router.post("/tasks", response_model=TaskView, status_code=201, dependencies=[Depends(rate_limit("query"))])
 async def create_task(request: CreateTaskRequest) -> TaskView:
     service = await get_service()
     overrides = request.options.as_overrides() if request.options else None
@@ -165,7 +213,7 @@ async def get_cloud_config():
     return get_config_service().view()
 
 
-@router.put("/config/{capability}")
+@router.put("/config/{capability}", dependencies=[Depends(rate_limit("ingest"))])
 async def update_cloud_config(capability: str, payload: dict):
     """保存运行时覆盖（先验后写：校验失败保留旧值）。api_key 只进加密库。"""
     service = get_config_service()
@@ -175,7 +223,7 @@ async def update_cloud_config(capability: str, payload: dict):
         raise _config_problem(exc)
 
 
-@router.delete("/config/{capability}")
+@router.delete("/config/{capability}", dependencies=[Depends(rate_limit("ingest"))])
 async def remove_cloud_config(capability: str):
     """删除运行时覆盖，恢复环境值。"""
     service = get_config_service()
@@ -237,7 +285,7 @@ async def test_cloud_config(capability: str, payload: dict | None = None):
         }
 
 
-@router.put("/config/outbound/{capability}")
+@router.put("/config/outbound/{capability}", dependencies=[Depends(rate_limit("ingest"))])
 async def approve_outbound(capability: str):
     """登记当前配置指纹为该能力出站授权（provider/endpoint/model 变更后旧授权自动失效）。"""
     service = get_config_service()
@@ -247,7 +295,7 @@ async def approve_outbound(capability: str):
         raise _config_problem(exc)
 
 
-@router.post("/config/rotate-key")
+@router.post("/config/rotate-key", dependencies=[Depends(rate_limit("ingest"))])
 async def rotate_master_key(payload: dict):
     """主密钥轮换：先全量重加密并验证可解再替换；失败保留旧密文。
 
@@ -260,3 +308,33 @@ async def rotate_master_key(payload: dict):
     except ConfigEncryptionError as exc:
         raise V1Problem(status=503, code="config_encryption", detail=str(exc))
     return {"rotated": count, "note": "请同步更新启动环境 CONFIG_ENCRYPTION_KEY 为新主密钥"}
+
+
+# ---------------- 公开路由（token 签发 / 指标） ----------------
+
+
+@public_router.post("/auth/token")
+async def issue_auth_token(payload: dict):
+    """用 bootstrap 账号签发 JWT（AUTH_ENABLED 时受保护路由必需）。"""
+    from app.core.auth import AuthConfigError, AuthError, issue_token
+
+    username = str((payload or {}).get("username") or "")
+    password = str((payload or {}).get("password") or "")
+    try:
+        token, expires_in = issue_token(username, password)
+    except AuthConfigError as exc:
+        raise V1Problem(status=503, code="auth_not_configured", detail=str(exc))
+    except AuthError as exc:
+        from app.core.metrics import metrics as _m
+
+        _m.inc_auth_failure()
+        raise V1Problem(status=401, code=exc.code, detail=str(exc))
+    return {"access_token": token, "token_type": "Bearer", "expires_in": expires_in}
+
+
+@public_router.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    """Prometheus 文本指标（不含任何密钥/查询内容）。"""
+    from app.core.metrics import metrics
+
+    return metrics.render()
