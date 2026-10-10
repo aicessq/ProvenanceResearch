@@ -299,3 +299,12 @@
 - 联调证据：浏览器实测通过（创建任务→时间线实时→回答+引用→芯片高亮 gold 证据卡含"第 3 页/不少于六个月"原文）；联调用 `scripts/ui_smoke_server.py`（**FAKE 运行时**，脚本头显式标注非生产入口、产出非结论；生产入口仍是 uvicorn main:app，缺云配置显式失败）。
 - 顺带修复（联调暴露）：SSE 时间线出现重复 meta——服务的权威 meta（含预算）与 loop trace 的 meta（仅问题文本）都进流；`_forward` 现在跳过 loop 侧 meta/done（终态本来就是服务统一发），终态唯一契约不受影响。
 - CI：frontend-build 矩阵加入 `frontend/`（vue-tsc 严格类型检查在 CI 内联跑）。P5 云配置面板（provider/model/base_url/key 加密存储、出站逐能力授权 UI）随后落地，密钥不进 localStorage/GET/日志的约束从第一版就成立（当前界面无任何密钥入口）。
+
+## 2026-10-11 P5 云配置面：凭证加密存储 + 云出站逐能力授权
+
+- 决定：`SecretVault`（Fernet，主密钥来自启动环境 `CONFIG_ENCRYPTION_KEY`）+ `CloudConfigService`（env 启动参数 vs 运行时覆盖）+ `OutboundGate`（逐能力指纹授权）+ `/api/v1/config*` 与前端设置面板。五能力（llm/embedding/reranker/ocr/vision）配置字段沿用 `.env.example` 契约（`{CAP}_PROVIDER/_MODEL/_MODEL_VERSION/_API_KEY/_BASE_URL`）；运行时覆盖存 `data/cloud_config_overrides.json`（非密文字段）+ `data/cloud_secrets.json`（仅密文）。
+- 安全约束落实（design.md §9 逐条）：主密钥缺失/格式不符/强度不足（32 字节中不同字节 <16）拒绝保存凭证与启用该能力，不回退明文或临时密钥；GET/日志/trace 永不回显密钥（视图只回 configured/missing，前端输入框只写不读且不落 localStorage）；校验失败保留旧值（先验后写）；删除覆盖即恢复环境值；主密钥轮换先全量重加密并验证可解再原子替换，失败保留旧密文；provider/endpoint/model 变更使旧出站授权失效（指纹不含密钥）；凭证不等于授权——配置验证 live 探测也需 `confirm_fingerprint` 显式确认本次外送。
+- 出站门：`CLOUD_DATA_UPLOAD_ALLOWED=false` 总开关默认拒绝一切外送数据的调用，逐能力授权映射存 `CLOUD_DATA_APPROVALS_JSON`（env）+ 运行时覆盖（UI 授权按钮）；留存提示在 UI 可见。**边界**：出站门目前是配置面/验证面的授权闸；把 `check_outbound` 接进每个 provider/工具出站调用点（LLM/搜索/fetch/OCR/vision）随 P3a 剩余与 P3b 的 provider 接入一并落，届时"默认拒绝"才覆盖运行时调用——roadmap 已标注。
+- embedding 变更打 `index_migration_pending` 标记（P3a 的 EmbeddingIdentity/CollectionBinding 契约）：UI 可见"待索引迁移"；索引迁移执行器随 KE 接入，未迁移前不得当作新索引已生效（不在本模块偷偷换 collection）。
+- 取舍：新模块命名 `cloud_config_service.py` 避让旧 `config_service.py`（SQLite 模型槽，旧路径零改动）；`cryptography==44.0.0` 进 environment.yml 与本机 multiagent（装依赖已在动手前说明：必要性=凭证加密硬要求，体积约 3–4 MB wheel，无更轻的正当替代）。端点校验复用 P2.5 的 `endpoint_guard.validate_model_endpoint`（官方主机 allowlist、https-only）。
+- 验收：researcher 125 例（+12 配置面）、新契约 115、前端构建 43 模块全绿；浏览器实测设置面板（默认拒绝/指纹表/主密钥缺失警告）符合验收描述。user 侧截图验收与真实云验证（填真实密钥打真实 provider）待用户操作。

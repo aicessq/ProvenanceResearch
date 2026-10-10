@@ -276,3 +276,84 @@ def test_openapi_covers_v1_and_legacy_paths(monkeypatch) -> None:
         # 旧接口兼容期仍在
         assert "/api/research" in paths
         assert "/api/research/{task_id}/stream" in paths
+
+
+# ---------------- /api/v1/config 云配置面 ----------------
+
+
+def _config_client(monkeypatch, tmp_path):
+    import base64
+
+    from app.api import routes_v1 as v1
+    from app.services.cloud_config_service import CloudConfigService
+    from app.services.config_secrets import SecretVault
+
+    key = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
+    env = {
+        "CONFIG_ENCRYPTION_KEY": key,
+        "LLM_PROVIDER": "deepseek",
+        "LLM_MODEL": "deepseek-chat",
+        "LLM_API_KEY": "sk-env-value",
+    }
+    service = CloudConfigService(
+        vault=SecretVault(key, persist_path=tmp_path / "secrets.json"),
+        overrides_path=tmp_path / "overrides.json",
+        environ=env,
+    )
+    monkeypatch.setattr(v1, "_config_service", service)
+    return TestClient(create_application())
+
+
+def test_config_get_is_masked_and_never_leaks_keys(monkeypatch, tmp_path) -> None:
+    with _config_client(monkeypatch, tmp_path) as client:
+        resp = client.get("/api/v1/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["capabilities"]["llm"]["api_key"] == "configured"
+        assert body["vault_enabled"] is True
+        assert "sk-env-value" not in resp.text  # GET 永不回显密钥
+
+
+def test_config_update_saves_encrypted_and_validation_failure_keeps_old(monkeypatch, tmp_path) -> None:
+    with _config_client(monkeypatch, tmp_path) as client:
+        resp = client.put("/api/v1/config/llm", json={"model": "deepseek-reasoner", "api_key": "sk-new-secret"})
+        assert resp.status_code == 200
+        assert resp.json()["model"] == "deepseek-reasoner"
+        assert "sk-new-secret" not in resp.text
+
+        raw = (tmp_path / "secrets.json").read_text(encoding="utf-8")
+        assert "sk-new-secret" not in raw  # 加密落盘
+
+        bad = client.put("/api/v1/config/llm", json={"base_url": "http://api.deepseek.com"})
+        assert bad.status_code == 403
+        assert bad.headers["content-type"].startswith("application/problem+json")
+        assert bad.json()["code"] == "endpoint_not_allowed"
+
+        kept = client.get("/api/v1/config").json()["capabilities"]["llm"]
+        assert kept["model"] == "deepseek-reasoner"  # 校验失败保留旧值
+
+        restored = client.delete("/api/v1/config/llm")
+        assert restored.status_code == 200
+        assert restored.json()["source"] == "env"  # 恢复环境值
+
+
+def test_config_test_requires_explicit_probe_authorization(monkeypatch, tmp_path) -> None:
+    with _config_client(monkeypatch, tmp_path) as client:
+        static = client.post("/api/v1/config/llm/test", json={})
+        assert static.status_code == 200
+        assert static.json()["validation"] == "static_ok"
+
+        denied = client.post("/api/v1/config/llm/test", json={"probe": True})
+        assert denied.status_code == 409
+        assert denied.json()["code"] == "cloud_upload_not_authorized"  # 凭证不等于授权
+
+        approved = client.put("/api/v1/config/outbound/llm")
+        assert approved.status_code == 200
+        fingerprint = approved.json()["fingerprint"]
+
+        probed = client.post(
+            "/api/v1/config/llm/test",
+            json={"probe": True, "confirm_fingerprint": fingerprint},
+        )
+        assert probed.status_code == 200
+        assert probed.json()["validation"] in ("probe_ok", "probe_failed")  # 授权后才允许外送探测

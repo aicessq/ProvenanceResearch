@@ -2,10 +2,13 @@
 import { computed, onMounted, ref } from "vue";
 import ConversationView from "./components/ConversationView.vue";
 import EvidencePanel from "./components/EvidencePanel.vue";
+import SettingsPanel from "./components/SettingsPanel.vue";
 import TimelinePanel from "./components/TimelinePanel.vue";
+import { useConfigStore } from "./stores/config";
 import { useTasksStore } from "./stores/tasks";
 
 const store = useTasksStore();
+const config = useConfigStore();
 const question = ref("");
 
 onMounted(() => {
@@ -80,6 +83,7 @@ function onKeydown(event: KeyboardEvent) {
         >
           删除
         </button>
+        <button class="ghost" @click="config.show()">设置</button>
         <button class="primary" @click="store.newSession()">新提问</button>
       </div>
     </header>
@@ -110,6 +114,8 @@ function onKeydown(event: KeyboardEvent) {
       <div class="col"><EvidencePanel /></div>
       <div class="col"><TimelinePanel /></div>
     </main>
+
+    <SettingsPanel />
   </div>
 </template>
 

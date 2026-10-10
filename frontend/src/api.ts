@@ -95,3 +95,70 @@ export function openTaskStream(taskId: string, handlers: StreamHandlers): () => 
 
   return close;
 }
+
+/** ---- 云服务配置（凭证只写不读；GET 仅回 configured/missing） ---- */
+
+export interface CapabilityView {
+  configured: boolean;
+  source: "env" | "override";
+  provider: string;
+  model: string;
+  model_version: string;
+  base_url: string;
+  api_key: "configured" | "missing";
+  index_migration_pending: boolean;
+}
+
+export interface OutboundCapabilityView {
+  fingerprint: string;
+  approved: boolean;
+  reason: string;
+  provider: string;
+  endpoint: string;
+  model: string;
+}
+
+export interface ConfigView {
+  capabilities: Record<string, CapabilityView>;
+  sources: Record<string, { configured: boolean; source: string }>;
+  vault_enabled: boolean;
+  outbound: {
+    upload_allowed: boolean;
+    region: string;
+    approvals: Record<string, string>;
+    capabilities: Record<string, OutboundCapabilityView>;
+  };
+}
+
+export interface CapabilityPayload {
+  provider?: string;
+  model?: string;
+  model_version?: string;
+  base_url?: string;
+  api_key?: string;
+}
+
+export const configApi = {
+  get: () => request<ConfigView>("/api/v1/config"),
+  update: (capability: string, payload: CapabilityPayload) =>
+    request<CapabilityView>(`/api/v1/config/${encodeURIComponent(capability)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  remove: (capability: string) =>
+    request<CapabilityView>(`/api/v1/config/${encodeURIComponent(capability)}`, { method: "DELETE" }),
+  test: (capability: string, payload: { probe?: boolean; confirm_fingerprint?: string } = {}) =>
+    request<{ capability: string; validation: string; config?: CapabilityView }>(
+      `/api/v1/config/${encodeURIComponent(capability)}/test`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  approveOutbound: (capability: string) =>
+    request<OutboundCapabilityView>(`/api/v1/config/outbound/${encodeURIComponent(capability)}`, {
+      method: "PUT",
+    }),
+  rotateKey: (newKey: string) =>
+    request<{ rotated: number; note: string }>("/api/v1/config/rotate-key", {
+      method: "POST",
+      body: JSON.stringify({ new_key: newKey }),
+    }),
+};

@@ -20,11 +20,18 @@ from app.schemas.agentic import (
     TaskView,
 )
 from app.services.agentic_service import AgenticTaskService
+from app.services.cloud_config_service import (
+    CAPABILITIES,
+    CloudConfigService,
+    ConfigValidationError,
+)
+from app.services.config_secrets import ConfigEncryptionError
 from app.services.sse_v1 import SseV1Error, format_sse
 
 router = APIRouter(prefix="/v1", tags=["research-v1"])
 
 _service: AgenticTaskService | None = None
+_config_service: CloudConfigService | None = None
 
 KEEPALIVE_SECONDS = 15.0
 
@@ -41,6 +48,13 @@ async def get_service() -> AgenticTaskService:
         )
         await _service.initialize()
     return _service
+
+
+def get_config_service() -> CloudConfigService:
+    global _config_service
+    if _config_service is None:
+        _config_service = CloudConfigService()
+    return _config_service
 
 
 def _task_not_found(task_id: str) -> V1Problem:
@@ -131,3 +145,118 @@ async def stream_task_events(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------- 云服务配置（P5：凭证加密存储 + 出站逐能力授权） ----------------
+
+
+def _config_problem(exc: Exception) -> V1Problem:
+    if isinstance(exc, ConfigEncryptionError):
+        return V1Problem(status=503, code="config_encryption", detail=str(exc))
+    if isinstance(exc, ConfigValidationError):
+        status = 403 if exc.code == "endpoint_not_allowed" else 422
+        return V1Problem(status=status, code=exc.code, detail=exc.message)
+    return V1Problem(status=500, code="internal_error", detail=f"{type(exc).__name__}: {exc}"[:200])
+
+
+@router.get("/config")
+async def get_cloud_config():
+    """云服务配置总览：凭证只回 configured/missing（密钥永不进 GET/日志）。"""
+    return get_config_service().view()
+
+
+@router.put("/config/{capability}")
+async def update_cloud_config(capability: str, payload: dict):
+    """保存运行时覆盖（先验后写：校验失败保留旧值）。api_key 只进加密库。"""
+    service = get_config_service()
+    try:
+        return service.update_capability(capability, payload)
+    except (ConfigValidationError, ConfigEncryptionError) as exc:
+        raise _config_problem(exc)
+
+
+@router.delete("/config/{capability}")
+async def remove_cloud_config(capability: str):
+    """删除运行时覆盖，恢复环境值。"""
+    service = get_config_service()
+    try:
+        return service.remove_override(capability)
+    except ConfigValidationError as exc:
+        raise _config_problem(exc)
+
+
+@router.post("/config/{capability}/test")
+async def test_cloud_config(capability: str, payload: dict | None = None):
+    """配置验证：静态校验必做；live 探测需显式 confirm_fingerprint（明确授权本次外送）。
+
+    probe=true 且 confirm_fingerprint 与当前配置指纹一致时才发起最小 live 调用；
+    凭证不等于授权——未确认指纹绝不外送（design.md §9）。
+    """
+    service = get_config_service()
+    body = payload or {}
+    try:
+        cfg = service.resolve(capability)
+        masked = service._mask(capability)
+    except ConfigValidationError as exc:
+        raise _config_problem(exc)
+
+    if not (body.get("probe") is True):
+        return {"capability": capability, "validation": "static_ok", "config": masked}
+
+    outbound = service.outbound_view()["capabilities"][capability]
+    confirm = str(body.get("confirm_fingerprint") or "")
+    if confirm != outbound["fingerprint"]:
+        raise V1Problem(
+            status=409,
+            code="cloud_upload_not_authorized",
+            detail="live 探测会向云端外送数据；需 confirm_fingerprint 与当前配置指纹一致（凭证不等于授权）",
+        )
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            resp = await client.post(
+                f"{cfg['base_url'].rstrip('/')}/chat/completions",
+                json={"model": cfg["model"], "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1},
+                headers={"Authorization": f"Bearer {cfg['api_key']}"},
+            )
+        ok = resp.status_code == 200
+        return {
+            "capability": capability,
+            "validation": "probe_ok" if ok else "probe_failed",
+            "http_status": resp.status_code,
+            "config": masked,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "capability": capability,
+            "validation": "probe_failed",
+            "error": f"{type(exc).__name__}",
+            "config": masked,
+        }
+
+
+@router.put("/config/outbound/{capability}")
+async def approve_outbound(capability: str):
+    """登记当前配置指纹为该能力出站授权（provider/endpoint/model 变更后旧授权自动失效）。"""
+    service = get_config_service()
+    try:
+        return service.approve_outbound(capability)
+    except ConfigValidationError as exc:
+        raise _config_problem(exc)
+
+
+@router.post("/config/rotate-key")
+async def rotate_master_key(payload: dict):
+    """主密钥轮换：先全量重加密并验证可解再替换；失败保留旧密文。
+
+    轮换成功后必须同步更新启动环境的 CONFIG_ENCRYPTION_KEY，否则重启后不可解。
+    """
+    service = get_config_service()
+    new_key = str((payload or {}).get("new_key") or "")
+    try:
+        count = service.rotate_master_key(new_key)
+    except ConfigEncryptionError as exc:
+        raise V1Problem(status=503, code="config_encryption", detail=str(exc))
+    return {"rotated": count, "note": "请同步更新启动环境 CONFIG_ENCRYPTION_KEY 为新主密钥"}

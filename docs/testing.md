@@ -168,3 +168,14 @@ agent 为新增顶层包（依赖仅标准库+已有 evidence/tools，fake LLM �
 | researcher | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `113 passed`（含 meta 去重修复后回归） |
 
 联调修复记录：时间线曾出现两条 meta（服务带预算的 meta 与 loop trace 只有问题文本的 meta 重复）——`_forward` 现在跳过 loop 的 meta/done（终态由服务统一发）。联调截图已随浏览器交付页保留；CI frontend-build 矩阵加入 `frontend/`（三套前端并行构建，旧两套在替代验收后移除）。FAKE 冒烟服务器明确标注非生产入口、产出非结论（AGENTS.md 约束不破）。
+
+## 2026-10-11 P5 云配置面（加密存储 + 出站授权）测试基线
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| researcher（含云配置 12 例） | `researcher/deep_research_system/` 内 conda multiagent `python -m pytest tests/ -q` | `125 passed`（+12：SecretVault 3、配置服务 4、出站门 2、API 3） |
+| 四新包+bridge | 仓库根 KE venv `-m pytest providers/tests evidence/tests tools/tests agent/tests tests_bridge -q` | `115 passed`（零改动） |
+| 统一前端构建 | `cd frontend && npm run build` | 通过（43 模块） |
+| 浏览器联调 | 冒烟后端 + 设置面板实测 | 五能力表单/密钥只写不读/主密钥缺失警告/出站授权默认拒绝（cloud_upload_not_authorized）+ 指纹表/主密钥轮换区 ✓ |
+
+验证的行为（P5 验收项）：凭证 Fernet 加密落盘且 GET/视图不回显（断言明文不在响应与密文文件）；CONFIG_ENCRYPTION_KEY 缺失/弱/格式错拒绝保存、不回退明文；轮换失败保留旧密文、成功后新钥可解；校验失败保留旧值、删除覆盖恢复环境值；provider/endpoint/model 变更使旧出站授权失效（approval_stale_config_changed）；凭证不等于授权（live 探测需 confirm_fingerprint 显式确认）。依赖变更：researcher 环境新增 `cryptography==44.0.0`（environment.yml + 本机 conda multiagent，凭证加密唯一正当选择）。
