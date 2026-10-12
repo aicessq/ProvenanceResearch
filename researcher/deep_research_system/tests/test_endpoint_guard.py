@@ -20,6 +20,20 @@ def test_infers_provider_from_allowlisted_host() -> None:
     assert base == "https://api.moonshot.cn/v1"
 
 
+def test_allows_user_approved_qwen_tenant_host() -> None:
+    """2026-10-12 用户核准的阿里云百炼租户端点：精确主机放行，路径规范化照旧。"""
+    base = validate_model_endpoint(
+        "qwen", "https://llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/"
+    )
+    assert base == "https://llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+
+
+def test_allows_user_approved_opencode_gateway() -> None:
+    """2026-10-12 用户核准的 opencode.ai 网关端点。"""
+    base = validate_model_endpoint("opencode", "https://opencode.ai/zen/go/v1/")
+    assert base == "https://opencode.ai/zen/go/v1"
+
+
 @pytest.mark.parametrize(
     "provider,api_base",
     [
@@ -37,6 +51,13 @@ def test_infers_provider_from_allowlisted_host() -> None:
         ("deepseek", "https://api.deepseek.com@evil.example.com/v1"),
         ("deepseek", "https://api.deepseek.com:8443/v1"),
         ("deepseek", ""),
+        # 租户主机只放行精确匹配：兄弟租户/端口借用/串 provider 一律拒绝
+        ("qwen", "https://llm-evil.cn-beijing.maas.aliyuncs.com/v1"),
+        ("qwen", "https://llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com:8443/v1"),
+        ("deepseek", "https://llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com/v1"),
+        # opencode 网关只放行官方主机与正确 provider 标签
+        ("opencode", "https://evil.example.com/v1"),
+        ("deepseek", "https://opencode.ai/zen/go/v1"),
     ],
 )
 def test_rejects_forbidden_targets(provider: str, api_base: str) -> None:

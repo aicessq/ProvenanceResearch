@@ -55,6 +55,25 @@ def test_success_parses_content_and_usage() -> None:
     assert result.completion_tokens == 1
 
 
+def test_extra_headers_sent_with_bearer() -> None:
+    """网关端点契约：extra_headers 随请求发出且不承载凭证；Authorization 照旧。"""
+    seen: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.update(req.headers)
+        return httpx.Response(200, json=_ok_body())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
+    provider = DeepSeekLLMProvider(
+        api_key="test-key",
+        client=client,
+        extra_headers={"x-opencode-session": "sess-123"},
+    )
+    asyncio.run(provider.generate(MESSAGES))
+    assert seen.get("x-opencode-session") == "sess-123"
+    assert seen.get("authorization") == "Bearer test-key"
+
+
 def test_401_maps_to_auth_failed_and_is_not_retried() -> None:
     calls = []
 

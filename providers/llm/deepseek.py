@@ -32,6 +32,7 @@ class DeepSeekLLMProvider:
         max_retries: int = 2,
         retry_delay_seconds: float = 1.0,
         client: httpx.AsyncClient | None = None,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> None:
         self._api_key = (api_key or "").strip()
         self._model = model
@@ -39,6 +40,8 @@ class DeepSeekLLMProvider:
         self._timeout_seconds = timeout_seconds
         self._max_retries = max(0, max_retries)
         self._retry_delay_seconds = retry_delay_seconds
+        # 网关类端点的附加请求头（如 opencode.ai 的 x-opencode-session）；不承载凭证
+        self._extra_headers = dict(extra_headers or {})
         # 测试注入 MockTransport 用；生产路径由本类自建且禁重定向
         self._client = client or httpx.AsyncClient(
             timeout=timeout_seconds,
@@ -67,7 +70,7 @@ class DeepSeekLLMProvider:
                 resp = await self._client.post(
                     f"{self._base_url}/chat/completions",
                     json=payload,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers={"Authorization": f"Bearer {self._api_key}", **self._extra_headers},
                 )
             except httpx.TimeoutException as exc:
                 last_error = ProviderError(

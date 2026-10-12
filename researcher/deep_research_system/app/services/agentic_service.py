@@ -108,6 +108,11 @@ def build_cloud_runtime() -> AgenticRuntime:
     }
     if cfg.get("base_url"):
         llm_kwargs["base_url"] = cfg["base_url"].strip()
+    # 网关端点要求 x-opencode-session 稳定会话 ID（路由/缓存用，不承载凭证）
+    from uuid import uuid4
+
+    session_id = (os.environ.get("LLM_SESSION_ID") or "").strip()
+    llm_kwargs["extra_headers"] = {"x-opencode-session": session_id or f"runtime-{uuid4().hex}"}
     llm = DeepSeekLLMProvider(**llm_kwargs)
     store = EvidenceStore()
     registry = SourceRegistry()

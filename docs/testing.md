@@ -212,3 +212,54 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 | 仓库契约 | `python3 scripts/check_repo_contracts.py` | 通过 |
 
 行为变化：生产运行时构建（`build_cloud_runtime`）与 P4 live 跑分现在逐能力过出站门（llm/search:web/search:arxiv）——`CLOUD_DATA_UPLOAD_ALLOWED=false` 或未登记指纹即显式 `cloud_upload_not_authorized`，拒绝里附所需指纹；搜索来源（Tavily/arXiv 外送查询）纳入授权面与 UI 指纹表；`LLM_*` 配置面成为 runtime 的配置来源（`DEEPSEEK_API_KEY`/`DEEPSEEK_MODEL` 保留为兼容回退）；新增 `CLOUD_CONFIG_OVERRIDES_PATH`/`CLOUD_SECRETS_PATH` 环境覆盖（可测性/运维）。
+
+## 2026-10-12 云凭证接入、出站授权开启与真实 smoke
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| researcher（+4：租户主机精确放行 1、兄弟租户/端口/串 provider 拒绝 3） | multiagent `python -m pytest tests/ -q` | `138 passed` |
+| 六目录新契约 | KE venv 六目录 | `128 passed`（零改动） |
+| 仓库契约 / Compose 静态校验 | `python3 scripts/check_repo_contracts.py` / `docker compose config -q` | 通过 |
+| 出站门八项实测 | 全新进程：runner 同款 `OutboundGate.from_env` 3 项 + 配置面 `check_outbound` 5 项 | 全部 `approved` |
+| 真实 smoke（合成 PNG"HELLO 2026"+合成查询，用户已授权） | KE venv 内联脚本，四路各 1 次 | 视觉 qwen3-vl-plus OK 3.3s（结构化 7 条 observations）；LLM deepseek OK 0.5s（11+1 tokens）；Tavily OK 2.0s（2 evidence）；**OCR 失败待用户侧**（见下） |
+| P4 live 跑分 | KE venv `python eval/runner.py --mode live`（18 题×3 条件×3 次） | 首跑 162 次运行**全 error**（见下节协议违约）；修复后重跑见 2026-10-12 补丁节 |
+
+- **OCR 失败定位**：token 换取成功（API Key/Secret 有效），`/rest/2.0/ocr/v1/general` 回 `No permission to access data`——百度智能云控制台未给该应用开通"通用文字识别"，属供应商侧产品开通问题；开通后复测，其余三路已通。
+- **踩坑记录**：`.env` 中 `CLOUD_DATA_APPROVALS_JSON` 含双引号，必须整体单引号包裹——bash `source` 会把内层双引号按引号语法剥离，得到非法 JSON，`OutboundGate.from_env` 对坏 JSON 静默回落 `{}` 且报 `capability_not_approved`（首轮八项验证即踩中）。
+- 出站授权落地方式：指纹经生产路径 `approve_outbound` 五能力登记（`data/cloud_config_overrides.json` 持久化）并镜像写 `.env` 的 `CLOUD_DATA_APPROVALS_JSON`（runner 的 `OutboundGate.from_env` 只读 env，两处一致）；`.gitignore` 增 `**/data/cloud_secrets.json`、`**/data/cloud_config_overrides.json`。
+
+## 2026-10-12 补丁：P4 live 首跑暴露 LLM 消息协议违约 → 修复 → 重跑
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 首跑 P4 live | 同上 | 162 次运行**全 error**（`AttributeError: 'dict' object has no attribute 'role'`，p95 秒级 = 秒挂）；报告自标 `not_a_conclusion`，机械信号 `safety=PASS` 仍有效 |
+| 六目录（+1 回归：loop 以 LLMMessage 调 generate） | KE venv 六目录 | `129 passed` |
+| researcher / 仓库契约 | 原命令 | `138 passed` / 通过 |
+| live 接线冒烟 | `runner.py --mode live --conditions A --runs 1` | 真实指标产出：recall@10=0.7059、mrr=0.6373、citation_acc=0.9583、refusal_acc=0.75、false_refusal=0.4286、p95=5.5s |
+| 完整 P4 live 重跑 | `runner.py --mode live`（18 题×3 条件×3 次） | **162 次运行 0 error**（wall 821s）。A/B/C：recall@10 均 0.7059、mrr 0.6373/0.6412/0.6127、citation_acc 0.9535/1.0/0.9776、refusal_acc 0.75/0.75/0.9167、false_refusal 0.4286/0.4762/0.381、answer_mech 0.3095/0.2976/0.381、p95 6.2s/11.0s/8.6s；token A 508k+15k、B 515k+15k、C 536k+24k（cost_unknown=false） |
+
+- **根因与修复**：`agent/loop.py` 三处 `generate` 调用（semantic check/plan/generate）传裸 dict `{"role": "user", ...}`，违约 `LLMProvider` 协议（`Sequence[LLMMessage]`）；fake LLM 从不读 `.role/.content` 所以 129 例 fake 测试全程没拦住，live 适配器（DeepSeek）首跑即全挂。修复为调用方构造 `LLMMessage`（协议严格口径，不在适配器里做 dict 容忍），并把 `eval/runner.FakeEvalLLM` 的 `messages[0]["content"]` 同步收紧为 `.content` 属性访问（fake 对齐真实适配器行为）；新增回归 `test_generate_calls_pass_llmmessage_instances` 断言所有 generate 调用收到的都是 LLMMessage。
+- **教训**：fake 的宽容就是漏洞——fake 必须对消息形状与真实适配器同宽严，否则契约测试测不出接缝违约。
+
+## 2026-10-12 LLM 切换：DeepSeek → opencode.ai mimo-v2.6-pro
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| 六目录（+1：extra_headers 契约） | KE venv 六目录 | `130 passed` |
+| researcher / 仓库契约 | 原命令 | `138 passed` / 通过 |
+| 出站门八项（LLM 身份变更后重登记） | 全新进程 runner 门 3 + 配置面 5 | 全部 `approved` |
+| 新服务 smoke | `eval.runner._live_llm()` 真实路径 | OK 4.4s（`OK`，15+18 tokens） |
+| P4 对比跑（mimo，对比实验非冻结基线） | `runner.py --mode live` | 后台执行中 |
+
+- 接线：runner `_live_llm` 改 `LLM_*` 配置面优先 + 传 base_url（旧代码不传 base_url，纯 .env 切不过去）；`require_live_config` 接受 `LLM_API_KEY`、指纹 preset provider 标签读 `LLM_PROVIDER`；`DeepSeekLLMProvider` 增 `extra_headers` 发 `x-opencode-session`（opencode 网关强制，会话稳定 ID 由 `LLM_SESSION_ID` 或进程 uuid 注入）；test_p4_eval 补 LLM_* hermetic 清理。
+- 实测坑：mimo 是推理模型（响应带 `reasoning_content`），smoke 首发 `max_tokens=8` 被推理耗尽致 `content=None` → INVALID_RESPONSE；放开上限即正常。loop/runner 不传 max_tokens 不受影响。
+
+## 2026-10-12 OCR 含位置版复测与收尾
+
+| 范围 | 实际命令 | 结果 |
+| --- | --- | --- |
+| OCR 含位置版复测 | `BaiduOCRProvider.recognize` 合成图 | OK 0.4s：转录 `'HELLO'`、bbox 归一化 0–1、confidence=None（不伪造）；**四路 smoke 全通** |
+| researcher（+3：opencode 网关放行 1、错主机/串 provider 拒绝 2） | 原命令 | `141 passed` |
+| 六目录 / 仓库契约 | 原命令 | `130 passed` / 通过 |
+
+收尾改动：`endpoint_guard` 增 `opencode: ("opencode.ai",)`（用户批准）；`.env.example` 补 `OCR_API_SECRET`（用户批准）。

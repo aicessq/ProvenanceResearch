@@ -331,3 +331,49 @@
 - 一致性修正：runtime 的 LLM 配置改为从配置面解析（`LLM_PROVIDER/LLM_MODEL/LLM_API_KEY/LLM_BASE_URL` + 加密覆盖），`DEEPSEEK_API_KEY/DEEPSEEK_MODEL` 保留为兼容回退（P4 冻结契约与 README 提及的环境名不破坏）；搜索来源（Tavily/arXiv 外送**查询**——design §9 明文计入外送）纳入出站视图与 UI 指纹表（search:web/search:arxiv），逐能力授权/失效语义与模型能力一致。
 - 可测性/运维：`CLOUD_CONFIG_OVERRIDES_PATH`/`CLOUD_SECRETS_PATH` 环境覆盖存储位置（默认 data/ 不变）。
 - 验收：researcher 134（+2）、六目录 128（P4 live 门测试扩出站维度）全绿；默认拒绝、逐能力独立、指纹变更失效均有断言。
+
+## 2026-10-12 根 .env 生成与凭证复用（零代码改动）
+
+- 决定：由 `.env.example` 生成根 `.env`（gitignored、chmod 600，Compose backend/worker 均以 env_file 读取）。DeepSeek 与 Tavily 凭证**复用** `researcher/deep_research_system/.env` 既有 key（同机、同项目、同一用途的模型池配置；四把 MODEL_* key 实测为同一把），不在对话/文档中出现明文；`DEEPSEEK_API_KEY`/`DEEPSEEK_MODEL` 同步填入（eval runner 与 runtime 兼容回退的冻结契约名）。
+- `CONFIG_ENCRYPTION_KEY` 由 openssl 随机生成（Fernet urlsafe-base64 32 字节、不同字节 30 ≥ 16），写入前经 SecretVault 真实代码往返验证（加解密、密文落盘无明文、删除、弱钥拒绝）；仅经启动环境提供，不进仓库。
+- 保留不动：`CLOUD_DATA_UPLOAD_ALLOWED=false` 与 `CLOUD_DATA_APPROVALS_JSON={}`——出站授权是用户核对供应商条款后的逐能力决定，凭证≠授权，不因配置生成而代开；`EMBEDDING_*`/`RERANKER_*` 留空（无云适配器，禁本地降级为 mock/本地权重）；OCR/VISION 凭证槽位留空待用户申请。
+- 契约缺口备忘（待批准后修 `.env.example`）：OCR 段只列 `OCR_API_KEY`，但 BaiduOCRProvider 需 API Key + Secret Key 两个凭证，`.env` 已加 `OCR_API_SECRET` 槽位。另一处 P3b 接线注意：`endpoint_guard.ALLOWED_PROVIDER_HOSTS` 中百度条目名为 `ernie`，OCR 适配器 `provider_name` 为 `baidu`，出站门接入 OCR 时需统一命名或扩注册表。
+- 验收：researcher 134、六目录 128、`check_repo_contracts.py` 全绿（本轮零代码变更）；SecretVault 实测通过；`docker compose config -q` 用真实 .env 静态校验通过。
+- 补充（同日）：用户提供百度 OCR（API Key+Secret Key）与阿里云百炼 qwen3-vl-plus vision 凭证，已填入 `.env` 对应槽位（不回显、不入仓）。vision 端点取 `…/compatible-mode/v1`（openai_vlm 适配器拼 `base_url/chat/completions`，`/api/v1` 是 DashScope 原生协议变体不适配）。**待裁决**：该端点是租户主机 `llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com` 而非官方 `dashscope.aliyuncs.com`，`endpoint_guard.ALLOWED_PROVIDER_HOSTS`（精确匹配）会拒绝——扩白名单属安全相关代码改动，未经用户批准不改；真实 smoke 调用属用户数据外送，待出站指纹授权后执行。
+
+## 2026-10-12 出站授权开启、租户主机白名单核准与真实 smoke
+
+- 决定（用户同日三项批准）：① **出站授权全开五能力**——用户核对条款后按确认文案填 `CLOUD_DATA_REGION`/`CLOUD_RETENTION_POLICY_NOTE`（region 进指纹，改动即授权失效），`CLOUD_DATA_UPLOAD_ALLOWED=true`，指纹经生产路径 `approve_outbound` 逐能力登记并镜像写 `.env` 的 `CLOUD_DATA_APPROVALS_JSON`（runner 只读 env 的 `OutboundGate.from_env`，两处必须一致）；② **白名单精确增补** `ALLOWED_PROVIDER_HOSTS["qwen"] += llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com`（用户租户主机，不做后缀通配；兄弟租户/端口借用/串 provider 三种攻击面写成拒绝测试，+4 例）；③ vision 端点定 `…/compatible-mode/v1`。
+- 实测踩坑（记为契约知识）：`.env` 中 `CLOUD_DATA_APPROVALS_JSON` 这类含双引号的值必须**整体单引号包裹**——bash `source` 会把内层双引号按引号语法剥离得非法 JSON，`OutboundGate.from_env` 对坏 JSON 静默回落 `{}`，症状是 `capability_not_approved`。首轮八项门检踩中，改引号后全放行。
+- `.gitignore` 增 `**/data/cloud_secrets.json`、`**/data/cloud_config_overrides.json`：P5 凭证密文与运行时覆盖属既有"本地凭证与运行时配置"忽略段的延伸，防误提交。
+- 真实 smoke（合成 PNG"HELLO 2026"+合成查询，无用户数据）：vision qwen3-vl-plus OK（7 条 observations，text_in_image/observation/inference 分层符合 P3b 契约；合成 5×7 像素字体被读成 2025，是测试图保真度问题非链路问题）；LLM deepseek OK；Tavily OK。**OCR 待用户侧**：token 换取成功证明 key/secret 有效，general 接口回 `No permission to access data` = 百度控制台未开通"通用文字识别"产品，开通后复测。
+- 验收：researcher 138（+4）、六目录 128、契约与 Compose 校验通过；出站门八项（runner 3 + 配置面 5）全新进程实测放行；P4 live 跑分（18 题×3 条件×3 次=162 次 agent 运行）已按冻结件在后台起跑。
+
+## 2026-10-12 P4 live 首跑暴露 LLM 消息协议违约（修复）
+
+- 现象：live 首跑 162 次运行全量秒挂 `AttributeError: 'dict' object has no attribute 'role'`，报告自标 `not_a_conclusion`（诚实标注）；fake 模式 129 例测试全绿却拦不住。
+- 根因：`agent/loop.py` 三处 `generate` 调用传裸 dict，违约 `LLMProvider` 协议 `Sequence[LLMMessage]`；fake LLM 容忍任意消息形状，接缝违约只有真实适配器（DeepSeek，读 `.role`）会暴露。
+- 决定：**修调用方而非放宽适配器**——loop 三处改构造 `LLMMessage`，`eval/runner.FakeEvalLLM` 的 dict 下标访问同步收紧为 `.content` 属性（fake 与真实适配器同宽严，防止同类违约再次从 fake 溜走）；新增回归测试断言 generate 收到的全部是 LLMMessage。不采纳"适配器兼容 dict"方案：协议类型就是契约，宽容化会让违约永久化。
+- OCR 产品定位（用户出示百度控制台调试截图）：用户 key 的 scope 仅 `brain_ocr_general_basic`——`general_basic`（通用文字识别-标准版）200 可用，`general`（标准含位置版，适配器为取 bbox/置信度所用）回 error_code 6。**待用户在控制台追加鉴权"通用文字识别（标准含位置版）"**；备选是适配器降级用 `general_basic`（丢 bbox/置信度，P3b 证据契约降级，不推荐）。
+- 验收：六目录 129（+1 回归）、researcher 138、契约通过；live 接线冒烟（条件 A ×1）真实指标产出证明修复有效；完整 P4 live 重跑后台执行中。
+
+## 2026-10-12 P4 live 首轮正式跑分：硬门槛全过，两道质量门槛未达（不放宽，记录待改进）
+
+- 结果（18 题×3 条件×3 次=162 次运行，0 error，wall 821s，报告 `round1.live.20261012-132444.json`）：**安全样例 5/5 拒答 ✓、预算合规 ✓（硬门槛全过）**；引用准确率 0.9535/1.0/0.9776 ✓（≥0.8）、拒答准确率 0.75/0.75/0.9167 ✓（≥0.75）、非回归 C 0.381 ≥ A 0.3095 − 0.05 ✓；**误拒率 0.4286/0.4762/0.381 ✗（≤0.25）**、**答案机械分 0.3095/0.2976/0.381 ✗（≥0.6）**。按冻结件纪律门槛失败**禁止事后放宽**，记分析待改进轮重跑。
+- 归因（细节数据支撑）：① 全部 83 次拒答 100% 是 `citation_gate_failed`（无一例 no_evidence/budget），即 writer 产出的 claims 过不了引用闸门、一次重生成仍失败 → 整题拒；② 检索 recall@10=0.7059 是答案质量天花板（约 29% 金点从未被检回，retriever=local-bigram-v1）——证据不全时 writer 倾向越权表述 claims，被闸门正确拦截，但结果是**整题拒绝而非部分作答**，直接打在 v1"部分有据则部分回答"需求上；③ 三条件 refusal 拒因分布完全一致（A/B 无工具、C 均 3.2 次工具调用），说明瓶颈在生成-闸门环节而非工具编排。
+- 改进方向（均属新改动，待批准后实施）：writer 提示词落实"部分有据则部分回答"；闸门/loop 对 claims 逐条取舍（dropped unsupported claims 后以有据部分作答，而非整题拒）；检索侧提升召回（云 embedding/reranker 迁移，属 P1/P2 集成尾巴）。
+- 数据可信度备注：`verified_gold=0`——题目金点未逐字核验（eval 语料轮已知 verified 全 false），答案机械分按未核验金点计算，只作方向参考；检索指标与 fake 轮完全一致（本地检索确定性），符合预期。
+
+## 2026-10-12 生成模型切换：DeepSeek → opencode.ai mimo-v2.6-pro（用户指令）
+
+- 决定：用户指令"调用这个服务而不是 deepseek"，生成/规划/验证 LLM 切到 `https://opencode.ai/zen/go/v1` 的 `mimo-v2.6-pro`（OpenAI 兼容 chat/completions，1M 上下文、推理模型带 `reasoning_content`）。凭证存 `local-llm-service.md`（**gitignored**，含 key，禁止提交）与 `.env`；`DEEPSEEK_*` 保留为兼容回退与基线复现（去 `LLM_*` 即回 deepseek）。
+- 接线改动（最小必要）：① `eval/runner._live_llm` 从只读 `DEEPSEEK_*` 改为 `LLM_*` 配置面优先、`DEEPSEEK_*` 回退并**传 base_url**（纯 .env 无法切——旧代码不传 base_url 会把新 key 打到 api.deepseek.com；方向沿用硬化轮"LLM_* 为配置来源"决议）；`require_live_config` 同步接受 `LLM_API_KEY`，出站指纹 preset 的 provider 标签改读 `LLM_PROVIDER`（与配置面指纹一致）；测试补 LLM_* hermetic 清理。② `DeepSeekLLMProvider` 增可选 `extra_headers`（不承载凭证）：opencode 网关要求 `x-opencode-session` 稳定会话 ID（官方文档：路由/缓存优化用，客户端自生成），runtime/runner 以 `LLM_SESSION_ID`（可选）或进程内 uuid 注入；契约测试 +1。
+- 实测坑：mimo 是**推理模型**——smoke 首发给 `max_tokens=8` 全被 `reasoning_content` 消耗，`content=None` 触发 INVALID_RESPONSE；放开上限后正常。loop/runner 不传 max_tokens，无此风险；教训是冒烟压测要给推理模型留出推理预算。
+- 出站授权：LLM 身份（provider/endpoint/model）变更使旧指纹失效，已按生产路径重登记五能力（地域备注同步更新为"opencode.ai：未核对"，用户可补核对结论）；用户切换指令即本次外送确认。**白名单缺口**：`endpoint_guard` 不含 `opencode.ai` 主机——运行时/runner 不校验可用，P5 设置面板保存会拒；是否扩白名单待用户批准（同租户主机先例）。P4 冻结件记录的模型身份是 `DEEPSEEK_MODEL/deepseek-chat`，mimo 跑分属**对比实验**不覆盖冻结基线。
+- 验收：六目录 130（+1 extra_headers 契约）、researcher 138、契约通过；出站门八项全新进程放行；`_live_llm` 真实路径 smoke OK（4.4s，'OK'）；P4 对比跑（mimo）后台执行中。
+
+## 2026-10-12 收尾三件：OCR 含位置版复测通过、opencode 入白名单、.env.example 补 OCR_API_SECRET
+
+- OCR 复测（用户开通"通用文字识别（标准含位置版）"后）：`general` 端点 OK 0.4s，合成图转录 `'HELLO'`、bbox 归一化 0–1、confidence=None 如实记录（响应未给 probability，不伪造）——**四路 smoke（OCR/视觉/LLM/搜索）至此全通**。
+- 决定（用户同日批准 2、3 两项）：① `endpoint_guard.ALLOWED_PROVIDER_HOSTS` 增 `opencode: ("opencode.ai",)`（精确主机匹配；+3 测试：网关放行 1、错主机/串 provider 拒绝 2）——设置面板现在可保存 mimo 配置，白名单缺口闭合；② `.env.example` OCR 段补 `OCR_API_SECRET` 字段（契约缺口闭合：百度需 API Key+Secret Key 两件）。
+- 验收：researcher 141（+3）、六目录 130、仓库契约全绿。`.env.example` 的 `LLM_SESSION_ID` 小缺口同日经用户批准补齐（opencode 会话头可选覆盖值，缺省自动生成 uuid；补后仓库契约校验通过）。

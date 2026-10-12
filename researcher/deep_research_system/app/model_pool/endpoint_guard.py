@@ -18,9 +18,12 @@ ALLOWED_PROVIDER_HOSTS: dict[str, tuple[str, ...]] = {
     "kimi": ("api.moonshot.cn",),
     "doubao": ("ark.cn-beijing.volces.com",),
     "ernie": ("aip.baidubce.com",),
-    "qwen": ("dashscope.aliyuncs.com",),
+    # 2026-10-12 用户核准：阿里云百炼 MaaS 租户端点（精确主机匹配，兄弟租户主机仍拒绝）
+    "qwen": ("dashscope.aliyuncs.com", "llm-pbhfa5rmunurn3vb.cn-beijing.maas.aliyuncs.com"),
     "openai": ("api.openai.com",),
     "anthropic": ("api.anthropic.com",),
+    # 2026-10-12 用户核准：opencode.ai 网关（会话头 x-opencode-session 由 LLM 适配层注入）
+    "opencode": ("opencode.ai",),
 }
 
 FORBIDDEN_HOSTNAMES = frozenset(

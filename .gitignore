@@ -165,6 +165,9 @@ venv.bak/
 # Local credentials and runtime configuration
 **/data/config.db
 **/data/config.db-*
+**/data/cloud_secrets.json
+**/data/cloud_config_overrides.json
+local-llm-service.md
 credentials.json
 credentials.*.json
 service-account.json

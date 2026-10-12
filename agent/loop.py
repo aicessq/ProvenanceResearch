@@ -28,6 +28,7 @@ from agent.citation_gate import CitationGate, Claim, parse_claims
 from agent.reader import fuse
 from evidence.schema import Evidence
 from evidence.store import EvidenceStore
+from providers.llm.base import LLMMessage
 from tools.base import ToolResult
 
 
@@ -56,7 +57,7 @@ class SemanticVerifier:
             "evidence": [{"citation_id": ev.citation_id, "text": (ev.raw_text or "")[:2000]} for ev in evidence],
         }
         result = await self._llm.generate(
-            [{"role": "user", "content": f"判断 claim 是否被证据支撑，只答 yes/no：{json.dumps(payload, ensure_ascii=False)}"}],
+            [LLMMessage(role="user", content=f"判断 claim 是否被证据支撑，只答 yes/no：{json.dumps(payload, ensure_ascii=False)}")],
             {"stage": "verify"},
         )
         if self._budget is not None:
@@ -304,7 +305,7 @@ class AgentLoop:
             '输出 JSON：{"tool_calls": [{"tool": "kb_search", "args": {"query": "..."}}]}'
         )
         result = await self._planner.generate(
-            [{"role": "user", "content": prompt}],
+            [LLMMessage(role="user", content=prompt)],
             {"stage": "plan", "remaining_tool_calls": self._budget.remaining_tool_calls()},
         )
         self._budget.charge_tokens(result.prompt_tokens + result.completion_tokens)
@@ -341,7 +342,7 @@ class AgentLoop:
         if attempt > 0:
             instruction = "上一次引用验证未通过，请修正引用后重新输出。" + instruction
         result = await self._writer.generate(
-            [{"role": "user", "content": f"{instruction}\n{json.dumps(payload, ensure_ascii=False)}"}],
+            [LLMMessage(role="user", content=f"{instruction}\n{json.dumps(payload, ensure_ascii=False)}")],
             {"stage": "generate", "attempt": attempt},
         )
         self._budget.charge_tokens(result.prompt_tokens + result.completion_tokens)

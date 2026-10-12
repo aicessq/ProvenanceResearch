@@ -243,6 +243,8 @@ def test_freeze_hash_mismatch_blocks_run() -> None:
 def test_live_mode_requires_cloud_config_and_outbound_approval(monkeypatch) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    for var in ("LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "LLM_PROVIDER"):
+        monkeypatch.delenv(var, raising=False)
     with pytest.raises(SystemExit):
         require_live_config(["A"])
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")

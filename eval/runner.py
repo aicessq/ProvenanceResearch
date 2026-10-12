@@ -80,13 +80,13 @@ class FakeEvalLLM:
         elif stage == "plan":
             self._plan_calls += 1
             query = ""
-            m = re.search(r"问题：([^\n]+)", messages[0]["content"])
+            m = re.search(r"问题：([^\n]+)", messages[0].content)
             if m:
                 query = m.group(1).strip()
             calls = [] if self._plan_calls > 1 else [{"tool": self._tool, "args": {"query": query, "top_k": 5}}]
             text = json.dumps({"tool_calls": calls}, ensure_ascii=False)
         elif stage == "generate":
-            m = re.search(r'(\{"question".*\})\s*$', messages[0]["content"], re.S)
+            m = re.search(r'(\{"question".*\})\s*$', messages[0].content, re.S)
             payload = json.loads(m.group(1)) if m else {"evidence": []}
             evidence = payload.get("evidence") or []
             if not evidence:
@@ -161,8 +161,8 @@ def require_live_config(conditions: list[str]) -> None:
     """live 模式配置门：缺配置/未授权显式失败，不降级 fake（AGENTS.md + design.md §9）。"""
     import os
 
-    if not (os.environ.get("DEEPSEEK_API_KEY") or "").strip():
-        raise SystemExit("live 模式需要 DEEPSEEK_API_KEY；拒绝以 fake/本地模型产出评测结论")
+    if not ((os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()):
+        raise SystemExit("live 模式需要 LLM_API_KEY（或兼容回退 DEEPSEEK_API_KEY）；拒绝以 fake/本地模型产出评测结论")
     if any(c in conditions for c in ("B", "C")) and not (os.environ.get("TAVILY_API_KEY") or "").strip():
         raise SystemExit("条件 B/C 需要 TAVILY_API_KEY（外部源是条件定义的一部分）；缺配置显式失败")
 
@@ -174,7 +174,11 @@ def require_live_config(conditions: list[str]) -> None:
 
     gate = OutboundGate.from_env()
     presets = {
-        "llm": ("deepseek", (os.environ.get("LLM_BASE_URL") or "unset").strip() or "unset", (os.environ.get("LLM_MODEL") or "deepseek-chat").strip()),
+        "llm": (
+            (os.environ.get("LLM_PROVIDER") or "deepseek").strip() or "deepseek",
+            (os.environ.get("LLM_BASE_URL") or "unset").strip() or "unset",
+            (os.environ.get("LLM_MODEL") or "deepseek-chat").strip(),
+        ),
         "search:web": ("tavily", "https://api.tavily.com", ""),
         "search:arxiv": ("arxiv", "https://export.arxiv.org", ""),
     }
@@ -376,10 +380,20 @@ def _live_llm():
 
     from providers.llm.deepseek import DeepSeekLLMProvider
 
-    return DeepSeekLLMProvider(
-        api_key=(os.environ.get("DEEPSEEK_API_KEY") or "").strip(),
-        model=(os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
-    )
+    # LLM_* 配置面优先、DEEPSEEK_* 兼容回退（与 build_cloud_runtime 同源，2026-10-12 硬化轮决议）
+    kwargs = {
+        "api_key": (os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip(),
+        "model": (os.environ.get("LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
+    }
+    base_url = (os.environ.get("LLM_BASE_URL") or "").strip()
+    if base_url:
+        kwargs["base_url"] = base_url
+    # 网关端点要求 x-opencode-session 稳定会话 ID（路由/缓存用，不承载凭证）
+    from uuid import uuid4
+
+    session_id = (os.environ.get("LLM_SESSION_ID") or "").strip()
+    kwargs["extra_headers"] = {"x-opencode-session": session_id or f"p4-live-{uuid4().hex}"}
+    return DeepSeekLLMProvider(**kwargs)
 
 
 def evaluate_thresholds(freeze: dict, report: dict) -> dict:

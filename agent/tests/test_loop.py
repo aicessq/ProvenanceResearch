@@ -371,3 +371,39 @@ def test_empty_claims_treated_as_insufficient_and_refused() -> None:
     assert answer.refusal_reason == "citation_gate_failed"
     empty_events = [t for t in answer.trace if t.get("reason") == "empty_claims"]
     assert len(empty_events) == 2  # 首次 + 一次重生成
+
+
+def test_generate_calls_pass_llmmessage_instances() -> None:
+    """回归（2026-10-12）：loop 必须以 LLMMessage 调 generate——裸 dict 曾让 P4 live 全量秒挂。"""
+    from providers.llm.base import LLMMessage
+
+    store = EvidenceStore()
+    seen: list = []
+
+    class CaptureLLM(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            seen.extend(messages)
+            return await super().generate(messages, metadata)
+
+    class AutoWriter(CaptureLLM):
+        async def generate(self, messages, metadata=None):
+            seen.extend(messages)
+            self.stages.append("generate")
+            cid = next((ev.citation_id for ev in store.all()), "KX")
+
+            class R:
+                pass
+
+            r = R()
+            r.text = _writer_ok(cid)
+            r.prompt_tokens = 1
+            r.completion_tokens = 1
+            return r
+
+    planner = CaptureLLM([PLAN_CALL, PLAN_DONE])
+    loop = _loop(planner, AutoWriter([]), store)
+    answer = asyncio.run(loop.run("网络安全法第一条讲了什么？"))
+    assert answer.status == "answered"
+    assert seen, "loop 未调用 generate"
+    assert all(isinstance(m, LLMMessage) for m in seen), [type(m).__name__ for m in seen]
+    assert all(m.role == "user" and isinstance(m.content, str) and m.content for m in seen)
