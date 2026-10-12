@@ -1,0 +1,133 @@
+<mxfile host="ZCode" modified="2026-09-22T00:00:00.000Z" agent="ZCode" version="24.7.5">
+  <diagram id="dr-current" name="researcher 当前架构">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1150" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="dr_title" value="researcher / deep_research_system 当前架构（2026-09-22 · 以代码为准）&#xa;红 = 审计问题锚点（编号见 docs/architecture-audit.md） · 黄 = 出站/外部 · 灰 = 死代码/注记 · 虚线 = 声称存在但从未执行" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1100" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_fe" value="前端" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="230" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_fe" value="旧 Vue 前端&#xa;SSE 订阅 / Pinia&#xa;（过渡资产 · P5 替换）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_fe">
+          <mxGeometry x="20" y="50" width="190" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_api" value="FastAPI 进程（uvicorn 单进程 · asyncio 内存态即真相 · 无队列无 broker）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="340" y="90" width="1090" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_rres" value="routes_research&#xa;POST /api/research（异步）&#xa;POST /research/sync&#xa;GET events（SSE）&#xa;DELETE 取消（重启后 404）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_api">
+          <mxGeometry x="20" y="40" width="220" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_rmod" value="routes_models&#xa;GET /models/status&#xa;POST /models/test&#xa;接受任意 api_base 出站（A2）&#xa;PUT /models/config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_api">
+          <mxGeometry x="270" y="40" width="230" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_rsvc" value="ResearchService（模块单例）&#xa;_tasks/_running/_subscribers&#xa;内存 dict = 运行时真相&#xa;asyncio.create_task(_execute)&#xa;结果缓存 md5·无 TTL 无上限（C3）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_api">
+          <mxGeometry x="540" y="40" width="260" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_evq" value="事件分发&#xa;每订阅者 asyncio.Queue&#xa;满即丢弃&#xa;C5: 无事件日志→回放不可能" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_api">
+          <mxGeometry x="840" y="40" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_graphs" value="LangGraph 拓扑&#xa;hierarchical / debate&#xa;每次构建各自实例化&#xa;池/路由/客户端（E2）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_api">
+          <mxGeometry x="20" y="280" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_agents" value="Agents&#xa;Planner → Searchers 并行&#xa;gather·无信号量无超时（D2）&#xa;→ Readers → Analyst → Critic&#xa;→ Writer → Validator&#xa;BaseAgent 花括号刮 JSON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_api">
+          <mxGeometry x="270" y="280" width="260" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_pool" value="APIKeyPool&#xa;每模型 1 key·轮询退化（E1）&#xa;拿不到→任意槽位 env key 兜底&#xa;跨供应商错配（E3）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_api">
+          <mxGeometry x="570" y="280" width="230" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_brk" value="KeyCircuitBreaker&#xa;死代码：全仓零调用（E2）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="zone_api">
+          <mxGeometry x="840" y="280" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_ssvc" value="SearchService&#xa;Tavily 固定 endpoint&#xa;缺 key / 失败 → 静默 mock（A5）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_api">
+          <mxGeometry x="20" y="470" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_state" value="TaskStateStore&#xa;任务状态 → Redis TTL 7d&#xa;掉线→静默不持久化（C2）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_api">
+          <mxGeometry x="270" y="490" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_router" value="FallbackRouter&#xa;Slot→Cost→Capability→Latency&#xa;静态链·有任意 key 即全部「可用」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_api">
+          <mxGeometry x="570" y="460" width="230" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_client" value="LLMClient&#xa;httpx AsyncClient 120s&#xa;失败硬抛→整任务失败（E4）&#xa;无重试/退避/429 处理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_api">
+          <mxGeometry x="840" y="460" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_note" value="重启行为：initialize() 把 RUNNING→FAILED 清孤儿，不恢复（G2）&#xa;错误传播：仅 search 分支 return_exceptions 吞错；其余 agent 失败 = 任务整体失败&#xa;topology/agents YAML 声明的 max_concurrent_searchers、timeout、max_retries 全部未实现（D2/D3）&#xa;models.yaml：6 家供应商（deepseek/glm/moonshot/doubao/ernie/qwen）静态配置" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fillColor=#ffffff;strokeColor=#d6b656;rounded=1;" vertex="1" parent="zone_api">
+          <mxGeometry x="20" y="660" width="520" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_lite" value="本地存储" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1490" y="90" width="320" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_lite" value="SQLite data/config.db&#xa;model_slots.api_key 明文（A3）" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_lite">
+          <mxGeometry x="20" y="40" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_rds" value="基础设施" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1490" y="270" width="320" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_rds" value="Redis 7&#xa;任务状态存储 TTL 7d&#xa;（非 broker · 非队列）" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_rds">
+          <mxGeometry x="20" y="40" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_cloud" value="云（出站目标）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1490" y="440" width="320" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_tav" value="Tavily API&#xa;（web search · 缺 key 时被 mock 替代）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_cloud">
+          <mxGeometry x="20" y="40" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr_prov" value="LLM providers ×6&#xa;deepseek / glm / moonshot&#xa;/ doubao / ernie / qwen" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_cloud">
+          <mxGeometry x="20" y="170" width="280" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="de1" value="SSE / HTTP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_fe" target="dr_rres" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de2" value="创建任务" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_rres" target="dr_rsvc" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de3" value="状态持久化（尽力而为）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_rsvc" target="dr_state" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de4" value="读写" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_state" target="dr_rds" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de5" value="create_task(_execute)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_rsvc" target="dr_graphs" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de6" value="执行" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_graphs" target="dr_agents" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de7" value="取 key / 模型" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_agents" target="dr_pool" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de8" value="路由" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_pool" target="dr_router" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de9" value="选定模型" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_router" target="dr_client" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de10" value="record_success/failure 从未调用（E2）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#999999;dashed=1;fontSize=11;" edge="1" source="dr_pool" target="dr_brk" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de11" value="searcher 搜索" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_agents" target="dr_ssvc" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de12" value="出站" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_ssvc" target="dr_tav" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de13" value="出站" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_client" target="dr_prov" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de14" value="进度事件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_agents" target="dr_evq" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de15" value="SSE 推流" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_evq" target="dr_rres" parent="zone_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de16" value="明文存 key（A3）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_rmod" target="dr_lite" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="de17" value="任意 base_url 出站（A2）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="dr_rmod" target="dr_prov" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

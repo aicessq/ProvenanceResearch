@@ -28,6 +28,11 @@
          -> 引用闸门 -> 回答或拒答
 ```
 
+配套图分成两个视角，避免把 Agent 的运行时反馈循环压缩成一个普通组件：
+
+- [architecture-target.drawio](architecture-target.drawio)：目标**系统拓扑图**，回答 researcher、knowledge_engine、基础设施和云服务分别部署在哪里、怎样连接。
+- [architecture-target-agentic-rag-runtime.drawio](architecture-target-agentic-rag-runtime.drawio)：目标 **Agentic RAG 运行时控制流图**，回答 Planner 如何动态选择工具、观察 ToolResult、依据 Evidence gap 重规划、受确定性护栏约束并最终回答或拒答。图中的 `OBSERVE → 重新规划下一动作` 回边是 Agentic 与固定检索流水线的结构分界。
+
 ## 2. 统一 Evidence 与可核验引用
 
 所有来源使用同一个、版本化的 Evidence 结构。`source_type` 描述来源，`modality` 描述模态，`extraction.method` 描述处理方式；增加来源不等于增加第二套答案结构。

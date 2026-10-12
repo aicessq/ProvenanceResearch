@@ -1,0 +1,150 @@
+<mxfile host="ZCode" modified="2026-09-23T00:00:00.000Z" agent="ZCode" version="24.7.5">
+  <diagram id="target-agentic-runtime" name="Agentic RAG 运行时控制流">
+    <mxGraphModel dx="1500" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1500" math="0" shadow="0" adaptiveColors="auto">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="目标 Agentic RAG 运行时控制流（P3d）&#xa;核心区别：工具顺序不是预编排流水线；Planner 每轮根据 Question + Observations + Evidence gaps + 剩余预算，动态选择下一动作或停止。" style="text;html=1;align=left;verticalAlign=middle;fontSize=17;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1500" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="legend" value="蓝 = 云 LLM 决策 / 生成　绿 = 确定性护栏 / 算法　黄 = 可选工具 / 外部能力　青 = 版本化任务状态　红 = 拒答 / 失败终态&#xa;粗蓝回边 = Agent 观察结果后重规划（Agentic 核心）　虚线 = 横切控制（取消 / deadline / 出站授权）" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fillColor=#ffffff;strokeColor=#666666;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="85" width="1500" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane_control" value="Agent 控制循环（researcher 单实例）" style="swimlane;horizontal=0;startSize=150;fillColor=#e8f4f8;strokeColor=#6c8ebf;html=1;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="170" width="1840" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="q" value="用户问题&#xa;+ 会话 / 来源偏好" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="lane_control">
+          <mxGeometry x="170" y="55" width="150" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="init" value="初始化任务状态&#xa;预算 / deadline / 轮次&#xa;call_id / 取消信号" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane_control">
+          <mxGeometry x="370" y="45" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="planner" value="Planner Agent（云 LLM）&#xa;&#xa;输入：Question + Tool Registry&#xa;+ Evidence 摘要 + Evidence gaps&#xa;+ Observations + 剩余预算&#xa;&#xa;输出（结构化）：&#xa;0..N 个 ToolCall，或 finish / refuse" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=3;fontStyle=1;" vertex="1" parent="lane_control">
+          <mxGeometry x="620" y="15" width="260" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="action" value="Planner 选择？" style="rhombus;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontStyle=1;" vertex="1" parent="lane_control">
+          <mxGeometry x="950" y="40" width="150" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="term" value="终止协调器&#xa;统一输出终止原因" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane_control">
+          <mxGeometry x="1570" y="45" width="190" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane_guard" value="确定性工具执行器（模型不能绕过）" style="swimlane;horizontal=0;startSize=150;fillColor=#e8f5e9;strokeColor=#82b366;html=1;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="380" width="1840" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="validate" value="ToolCall 闸门&#xa;工具白名单 + JSON Schema&#xa;来源启用状态 + 出站双授权&#xa;预算预留 + deadline + 取消&#xa;调用循环 / 无进展检测" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="lane_guard">
+          <mxGeometry x="800" y="25" width="230" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="valid" value="全部合法且&#xa;仍有预算？" style="rhombus;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="lane_guard">
+          <mxGeometry x="1100" y="45" width="150" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="schedule" value="调度选中的调用&#xa;只执行 Planner 本轮所选子集&#xa;并发 ≤4 + provider 限额&#xa;retry / fetch / read 均计预算" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane_guard">
+          <mxGeometry x="1320" y="30" width="220" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="tool_error" value="结构化 Observation&#xa;unknown_tool / invalid_args&#xa;not_authorized / budget_exhausted&#xa;retryable / fatal（错误脱敏）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="lane_guard">
+          <mxGeometry x="570" y="35" width="200" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane_tools" value="工具层（动态选择，可并行；不是每轮全调用）" style="swimlane;horizontal=0;startSize=150;fillColor=#fff9e6;strokeColor=#d6b656;html=1;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="590" width="1840" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="kb" value="kb_search&#xa;KB vector / keyword&#xa;文档过滤 · top_k&#xa;固定内部 HTTP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_tools">
+          <mxGeometry x="250" y="60" width="180" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="web" value="web_search&#xa;Tavily&#xa;query / time_range" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_tools">
+          <mxGeometry x="510" y="60" width="180" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="arxiv" value="arxiv_search&#xa;ID / version / abstract&#xa;3 秒全局节流" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_tools">
+          <mxGeometry x="770" y="60" width="180" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="fetch" value="source_fetch&#xa;仅已登记 source_id&#xa;正文 / 对应版本 PDF&#xa;逐跳 SSRF 防护" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_tools">
+          <mxGeometry x="1030" y="50" width="190" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="read" value="evidence_read&#xa;仅已登记 evidence_id&#xa;parent / 页 / region&#xa;必要时云 vision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane_tools">
+          <mxGeometry x="1300" y="50" width="190" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane_evidence" value="观察、证据与反馈（任务状态）" style="swimlane;horizontal=0;startSize=150;fillColor=#f5f5f5;strokeColor=#0e8088;html=1;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="840" width="1840" height="230" as="geometry"/>
+        </mxCell>
+        <mxCell id="normalize" value="规范化 + 登记&#xa;ToolResult：call_id / status / meta / error&#xa;Evidence：版本化身份 / locator / hash&#xa;跨源去重但保留 discovery provenance&#xa;工具文本始终视为不可信数据" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#0e8088;fontStyle=1;" vertex="1" parent="lane_evidence">
+          <mxGeometry x="260" y="35" width="260" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="pool" value="Evidence Pool + Event Log&#xa;已登记证据 / ToolCall 轨迹&#xa;轮次 / 用量 / 实际成本&#xa;版本化 SSE 事件序列" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d0e8e8;strokeColor=#0e8088;" vertex="1" parent="lane_evidence">
+          <mxGeometry x="600" y="45" width="230" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="reader" value="Reader（确定性融合）&#xa;按实际调用集合做 RRF&#xa;重复调用不算多张赞成票&#xa;可选云 rerank 失败则保留 RRF&#xa;输出：ranked evidence + coverage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane_evidence">
+          <mxGeometry x="910" y="35" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="sufficient" value="证据足以回答？&#xa;关键断言均有覆盖？" style="rhombus;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontStyle=1;" vertex="1" parent="lane_evidence">
+          <mxGeometry x="1230" y="55" width="170" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="progress" value="可继续？&#xa;有预算 + 未超时&#xa;+ 有新 Evidence / 新策略" style="rhombus;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="lane_evidence">
+          <mxGeometry x="1480" y="50" width="180" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="gap" value="Evidence gaps / Observation&#xa;缺什么来源、全文、页或 region&#xa;上一轮为何不足 / 工具错误&#xa;剩余预算和 deadline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="850" y="1120" width="270" height="135" as="geometry"/>
+        </mxCell>
+        <mxCell id="writer" value="Writer（云 LLM）&#xa;只基于已登记 Evidence&#xa;每条事实性结论挂 citation_id&#xa;预留生成 + 验证预算" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="1125" width="230" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="gate" value="引用闸门（确定性 + 云验证）&#xa;文本 span / 数字 / 专名检查&#xa;OCR 歧义回看原区域&#xa;视觉断言绑定原资产 / region" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1510" y="1120" width="240" height="135" as="geometry"/>
+        </mxCell>
+        <mxCell id="gate_ok" value="闸门通过？" style="rhombus;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="1140" width="150" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="regen" value="携带 unsupported_claims&#xa;重生成 1 次&#xa;不重置预算 / 不重开检索循环" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1510" y="1310" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="answered" value="ANSWERED&#xa;sufficient_evidence&#xa;仅输出已过闸门答案" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="2040" y="1090" width="190" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="refused" value="REFUSED / FAILED / CANCELLED&#xa;budget_exhausted · deadline_exceeded&#xa;no_progress · providers_unavailable&#xa;citation_gate_failed · cancelled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="2040" y="1240" width="250" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="cross" value="横切控制&#xa;取消信号 · 任务 deadline · 模型/工具预算&#xa;CLOUD_DATA_UPLOAD_ALLOWED + 配置 fingerprint 授权&#xa;任一节点不可绕过；响应后结算实际用量" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="180" width="360" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="为何这是 Agentic RAG，而不是固定 RAG 流水线？&#xa;1. Planner 可在每轮选择任意工具子集、改写查询、读全文/页/图，或直接停止。&#xa;2. 下一步由真实 Observation 与 Evidence gaps 决定，不是预先写死的工具顺序。&#xa;3. Agent 只做决策；工具白名单、参数、预算、权限、融合、引用验证均由确定性代码执行。&#xa;4. 达到充分证据即停；无进展、无预算、超时或 provider 不可用则拒答，不无界循环。" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fillColor=#ffffff;strokeColor=#6c8ebf;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1120" width="690" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_q_init" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;strokeWidth=2;" edge="1" source="q" target="init" parent="lane_control"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_init_plan" value="首轮上下文" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;strokeWidth=2;fontSize=11;" edge="1" source="init" target="planner" parent="lane_control"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_plan_action" value="结构化决策" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=3;fontSize=11;" edge="1" source="planner" target="action" parent="lane_control"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_action_tools" value="ToolCall 0..N" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;" edge="1" source="action" target="validate" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_action_finish" value="finish / refuse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;strokeWidth=2;fontSize=11;" edge="1" source="action" target="term" parent="lane_control"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_validate_valid" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" source="validate" target="valid" parent="lane_guard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_valid_yes" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=11;" edge="1" source="valid" target="schedule" parent="lane_guard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_valid_no" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=11;" edge="1" source="valid" target="tool_error" parent="lane_guard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_schedule_kb" value="所选时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=11;" edge="1" source="schedule" target="kb" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_schedule_web" value="所选时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=11;" edge="1" source="schedule" target="web" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_schedule_arxiv" value="所选时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=11;" edge="1" source="schedule" target="arxiv" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_schedule_fetch" value="所选时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=11;" edge="1" source="schedule" target="fetch" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_schedule_read" value="所选时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;fontSize=11;" edge="1" source="schedule" target="read" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_kb_norm" value="ToolResult" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;fontSize=11;" edge="1" source="kb" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_web_norm" value="ToolResult" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;fontSize=11;" edge="1" source="web" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_arxiv_norm" value="ToolResult" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;fontSize=11;" edge="1" source="arxiv" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_fetch_norm" value="ToolResult" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;fontSize=11;" edge="1" source="fetch" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_read_norm" value="ToolResult" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;fontSize=11;" edge="1" source="read" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_error_norm" value="Observation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=11;" edge="1" source="tool_error" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_norm_pool" value="登记并结算" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;strokeWidth=2;fontSize=11;" edge="1" source="normalize" target="pool" parent="lane_evidence"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_pool_reader" value="实际调用集合" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0e8088;strokeWidth=2;fontSize=11;" edge="1" source="pool" target="reader" parent="lane_evidence"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_reader_suff" value="ranked evidence + coverage" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=11;" edge="1" source="reader" target="sufficient" parent="lane_evidence"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_suff_yes" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=11;" edge="1" source="sufficient" target="writer" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_suff_no" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=11;" edge="1" source="sufficient" target="progress" parent="lane_evidence"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_progress_yes" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;" edge="1" source="progress" target="gap" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_progress_no" value="否：无进展 / 预算 / deadline" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=11;" edge="1" source="progress" target="refused" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_feedback" value="OBSERVE → 重新规划下一动作（轮次 +1）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2474b5;strokeWidth=4;fontStyle=1;fontSize=12;" edge="1" source="gap" target="planner" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_writer_gate" value="带引用的候选答案" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;strokeWidth=2;fontSize=11;" edge="1" source="writer" target="gate" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_gate_decide" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" source="gate" target="gate_ok" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_gate_yes" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=11;" edge="1" source="gate_ok" target="answered" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_gate_no" value="否（首次）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=11;" edge="1" source="gate_ok" target="regen" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_regen_gate" value="再验证" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6c8ebf;fontSize=11;" edge="1" source="regen" target="gate" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_gate_fail" value="否（重生成后）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=11;" edge="1" source="gate_ok" target="refused" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_term_answer" value="有充分证据" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#82b366;fontSize=11;" edge="1" source="term" target="writer" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_term_refuse" value="无充分证据 / provider 不可用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=11;" edge="1" source="term" target="refused" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_cross_plan" value="横切检查" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;dashed=1;fontSize=11;" edge="1" source="cross" target="planner" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_cross_guard" value="横切检查" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;dashed=1;fontSize=11;" edge="1" source="cross" target="validate" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_cross_norm" value="结算 / 取消" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;dashed=1;fontSize=11;" edge="1" source="cross" target="normalize" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

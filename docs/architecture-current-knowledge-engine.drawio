@@ -1,0 +1,166 @@
+<mxfile host="ZCode" modified="2026-09-22T00:00:00.000Z" agent="ZCode" version="24.7.5">
+  <diagram id="ke-current" name="knowledge_engine 当前架构">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1300" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="ke_title" value="knowledge_engine 当前架构（2026-09-22 · 以代码为准）&#xa;红 = 审计问题锚点（编号见 docs/architecture-audit.md） · 绿 = 已验证健全 · 黄 = 外部/云 · 灰 = 死配置/注记" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1100" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_fe" value="前端" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="230" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_fe" value="React SPA（Vite :5173）&#xa;Dashboard / Upload / Retrieve&#xa;/ Rewrite / Answer / Eval&#xa;&#xa;A1: 全端点无认证&#xa;上传后不轮询任务状态" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_fe">
+          <mxGeometry x="20" y="50" width="190" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_be" value="Backend 进程（FastAPI :8000 · 同步 SQLAlchemy）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="340" y="90" width="1030" height="620" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_api" value="API 层&#xa;POST /documents/upload·replace&#xa;DELETE /documents·GET tasks&#xa;GET /api/v1/query·/api/v1/eval&#xa;admin.py = 空 stub" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="20" y="40" width="210" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_up" value="UploadService&#xa;扩展/MIME/20MB 校验&#xa;advisory lock + file_hash 去重&#xa;写 Document/Version/IngestTask&#xa;提交后派发（task_id 预生成）&#xa;派发失败→标记回滚" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="270" y="40" width="220" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_its" value="IngestTaskService&#xa;claim 原子认领 + fencing token&#xa;SKIP LOCKED 恢复扫描&#xa;B5: fencing 体系健全" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="zone_be">
+          <mxGeometry x="530" y="40" width="210" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_st" value="StorageService&#xa;UUID 目录 + 文件名消毒&#xa;无路径穿越" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="770" y="40" width="220" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_qrw" value="QueryRewriter&#xa;规则式改写（无 LLM）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="20" y="250" width="190" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_fus" value="检索融合&#xa;vector + keyword 两路召回" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="240" y="250" width="190" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_rrk" value="Reranker&#xa;本地 Qwen3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_be">
+          <mxGeometry x="460" y="250" width="170" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_ans" value="AnswerGenerator&#xa;LLMServiceError 时&#xa;静默降级为确定性拼接&#xa;（deterministic-evidence-&#xa;summarizer）&#xa;E5: 违反显式失败契约" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_be">
+          <mxGeometry x="20" y="420" width="210" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_llm" value="LLMService&#xa;llm_api_key 单把&#xa;同步 httpx · 30s 超时&#xa;单次尝试 · 无重试/退避" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_be">
+          <mxGeometry x="260" y="420" width="210" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_w" value="Worker 进程（Celery prefork ×N · 默认单队列）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="340" y="790" width="660" height="400" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_ing" value="ingest_document_task&#xa;claim→解析→清洗→切分&#xa;→嵌入→索引→complete&#xa;心跳 = 阶段间调用（B3）&#xa;acks_late=False（B2）&#xa;Qdrant 先于 db.commit（B4）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_w">
+          <mxGeometry x="20" y="40" width="240" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_rec" value="recovery_worker&#xa;queued-stale 重派 ≤3 次&#xa;PROCESSING 过时→failed&#xa;默认不自动重跑" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_w">
+          <mxGeometry x="300" y="40" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_reidx" value="reindex_worker&#xa;死任务：无任何派发方（B7）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="zone_w">
+          <mxGeometry x="300" y="210" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_wnote" value="prefork 并发 = CPU 核数&#xa;所有任务类型共用默认队列&#xa;Q2 已裁决（P3b 落实）：&#xa;at-least-once + ingest/control&#xa;双队列 + 计时器心跳" style="text;html=1;align=left;verticalAlign=top;fontSize=12;fillColor=#ffffff;strokeColor=#d6b656;rounded=1;" vertex="1" parent="zone_w">
+          <mxGeometry x="20" y="250" width="240" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_beat" value="Beat" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1040" y="790" width="250" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_beat" value="celery beat&#xa;recover_stale_tasks&#xa;每 60 秒" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_beat">
+          <mxGeometry x="20" y="40" width="210" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_lm" value="本地模型（进程内 · 违反全云契约，P3a 移除）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1040" y="990" width="340" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_emb" value="SentenceTransformer 嵌入&#xa;+ Qwen3 reranker 本地权重&#xa;进程内 lru_cache&#xa;prefork 每子进程各一份（B6）&#xa;P3a 全云化后移除" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="zone_lm">
+          <mxGeometry x="20" y="40" width="300" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_inf" value="基础设施（本机 docker compose）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1450" y="90" width="370" height="1100" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_pg" value="PostgreSQL 16&#xa;documents / versions / chunks&#xa;/ ingest_tasks + FTS&#xa;SKIP LOCKED · advisory lock" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="zone_inf">
+          <mxGeometry x="20" y="40" width="320" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_rd" value="Redis 7&#xa;Celery broker + result backend&#xa;无锁 · 无缓存（C1）" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_inf">
+          <mxGeometry x="20" y="240" width="320" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_qd" value="Qdrant&#xa;向量索引" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_inf">
+          <mxGeometry x="20" y="400" width="320" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_vol" value="共享文件卷&#xa;shared_storage（原文件）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_inf">
+          <mxGeometry x="20" y="540" width="320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_cloud" value="云" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1880" y="90" width="280" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="ke_cloud" value="云 LLM API&#xa;llm_base_url&#xa;全链路唯一云调用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_cloud">
+          <mxGeometry x="20" y="50" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="HTTP fetch（无认证 A1）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_fe" target="ke_api" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="上传" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_api" target="ke_up" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="查询" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_api" target="ke_qrw" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="去重 + 写 Document/Version/Task" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_up" target="ke_pg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="原文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_up" target="ke_st" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" value="写卷" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_st" target="ke_vol" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" value="① 派发 ingest（task_id 预生成）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_up" target="ke_rd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="② broker 投递" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_rd" target="ke_ing" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="③ claim（fencing）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_ing" target="ke_its" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="④ 嵌入" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_ing" target="ke_emb" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" value="⑤ upsert（先于 commit B4）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_ing" target="ke_qd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="⑥ chunks + FTS + complete" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_ing" target="ke_pg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" value="定时触发" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_beat" target="ke_rd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" value="投递恢复任务" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_rd" target="ke_rec" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e15" value="SKIP LOCKED 扫描" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_rec" target="ke_its" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_qrw" target="ke_fus" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e17" value="查询向量" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_fus" target="ke_emb" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e18" value="vector 召回" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_fus" target="ke_qd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e19" value="keyword FTS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_fus" target="ke_pg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e20" value="重排" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_fus" target="ke_rrk" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e21" value="证据上下文" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_rrk" target="ke_ans" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e22" value="生成" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_ans" target="ke_llm" parent="zone_be">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" value="出站（单 key）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="ke_llm" target="ke_cloud" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

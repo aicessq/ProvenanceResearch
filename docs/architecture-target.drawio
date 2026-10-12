@@ -1,0 +1,166 @@
+<mxfile host="ZCode" modified="2026-09-22T00:00:00.000Z" agent="ZCode" version="24.7.5">
+  <diagram id="target-arch" name="目标架构">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2500" pageHeight="1250" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="t_title" value="目标系统拓扑（组件视图 · docs/design.md）&#xa;本图回答“组件部署在哪里、彼此怎么连接”；Agent 自主决策与反馈循环见 architecture-target-agentic-rag-runtime.drawio。绿底 = Q1/Q2 已裁决 · 黄底 = Q3–Q7 推荐待确认 · 其余为 P3a–P5 尚未实现规格" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_t_fe" value="统一前端（P5）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="250" height="250" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_fe" value="统一研究界面&#xa;对话 / 证据引用 / 任务三栏&#xa;云服务配置 UI（密钥加密存储·&#xa;不入 localStorage/日志/SSE）&#xa;PDF 页跳转 · OCR bbox 定位" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_fe">
+          <mxGeometry x="20" y="50" width="210" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_t_res" value="researcher（Agentic RAG 编排 · 单实例 Q1 已裁决）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="340" y="90" width="950" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_api" value="统一公共接口 /api/v1&#xa;problem+json + request_id&#xa;版本化 SSE + Last-Event-ID 回放" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="20" y="40" width="220" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_loop" value="Agentic 有界循环&#xa;计划 → 校验工具调用 → 执行 → 登记&#xa;Evidence → 融合 → 缺口判定 → 追加/终止&#xa;预算：3 轮 · 12 次调用 · 20k tokens&#xa;180s deadline · 并发 4 · 循环检测&#xa;无新 Evidence 的重复调用不重试" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="270" y="40" width="270" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_exec" value="工具执行器&#xa;白名单 + JSON Schema 参数校验&#xa;预算 / 取消 / deadline&#xa;单源失败不取消健康源" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="580" y="40" width="330" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_tools" value="kb_search · web_search ·&#xa;arxiv_search · source_fetch ·&#xa;evidence_read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="580" y="210" width="330" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_reg" value="Source Registry&#xa;provider 能力/健康/限额&#xa;arXiv 3s 节流&#xa;（单进程信号量 · Q1 已裁决）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="20" y="200" width="220" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_evid" value="统一 Evidence 池（版本化）&#xa;provenance / locator / extraction&#xa;raw_text / citation_id（K/W/A/I）&#xa;检索内容 = 不可信数据&#xa;不提升为系统指令" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="270" y="270" width="270" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_adapter" value="Cloud Model Adapter&#xa;LLM / EMBEDDING / RERANKER / OCR /&#xa;VISION 独立配置 · 密钥绑定 provider&#xa;失败矩阵 · 退避 · deadline&#xa;多 key + 熔断接线（Q4 推荐·待确认）&#xa;删跨槽位 key 兜底（E3）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="270" y="450" width="270" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_reader" value="Reader 融合&#xa;RRF 确定性基线&#xa;（KB 权重 1.0 / 外部 0.7·top-8）&#xa;+ 可选云 rerank&#xa;无本地 reranker 回退" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="20" y="380" width="220" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_gate" value="引用闸门&#xa;span 文本验证 + 语义复检&#xa;视觉断言→云 vision 验证原区域&#xa;重生成 1 次仍失败 → 拒答&#xa;answered/refused 与任务态分离" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="20" y="560" width="220" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_evlog" value="SSE 事件日志&#xa;Q3 推荐（待确认）：每任务一条&#xa;Redis Stream · TTL 7d&#xa;Last-Event-ID = stream entry id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_res">
+          <mxGeometry x="270" y="660" width="270" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_t_ke" value="knowledge_engine（证据层 · Celery 多进程 Q1 已裁决）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1340" y="90" width="580" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_asset" value="原文件 / 资产管理&#xa;hash · 页镜像&#xa;限权过期资产 URL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="20" y="40" width="240" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_kb" value="内部 KB 检索接口&#xa;固定内部地址（不可被搜索结果指定）&#xa;vector / keyword 两路独立失败" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="290" y="40" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_ingest" value="入库管线&#xa;PDF 分类：原生文本/扫描/混合&#xa;云 OCR 转录 · 云 vision 观察/推断分离&#xa;parent-child 切分 · 页/bbox/资产溯源&#xa;失败页显式报告 · 不发布残缺版本&#xa;文本层与 OCR 不重复入库" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="20" y="200" width="240" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_idx" value="索引版本管理&#xa;embedding_identity 绑定&#xa;新 collection 重嵌 → 核验 → 切换&#xa;保留回滚 · 禁止跨身份复用向量" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="290" y="200" width="260" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_worker" value="Celery worker / beat&#xa;ingest / control 双队列（Q2 已裁决）&#xa;at-least-once + 计时器心跳&#xa;租约 fencing · 幂等重派&#xa;孤立索引清理&#xa;PROCESSING 自动恢复捆绑心跳" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="20" y="420" width="240" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_qcache" value="查询 embedding 有界缓存&#xa;（Q4 推荐·待确认）&#xa;键 = query + embedding 身份" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_ke">
+          <mxGeometry x="290" y="400" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_t_inf" value="基础设施（本机）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1980" y="90" width="430" height="540" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_pg" value="PostgreSQL&#xa;元数据 / FTS / 任务状态 · fencing&#xa;SKIP LOCKED · advisory lock" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_inf">
+          <mxGeometry x="20" y="40" width="380" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_redis" value="Redis&#xa;Celery broker + 状态存储&#xa;+ 事件日志（Q3 推荐·待确认）&#xa;目标拓扑：单实例两逻辑 DB（Q3）" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_inf">
+          <mxGeometry x="20" y="200" width="380" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_qd" value="Qdrant&#xa;向量索引（按 embedding 身份分 collection）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="zone_t_inf">
+          <mxGeometry x="20" y="370" width="380" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="zone_t_cloud" value="云（全部推理外部化 · 无本地模型回退）" style="swimlane;startSize=24;fillColor=#f5f5f5;strokeColor=#666666;html=1;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1980" y="690" width="430" height="460" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_models" value="LLM · Embedding · Reranker&#xa;OCR · Vision&#xa;（各能力独立配置·密钥不跨槽位）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_cloud">
+          <mxGeometry x="20" y="40" width="380" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_src" value="Tavily · arXiv&#xa;（来源注册 · 节流 · 缓存）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_cloud">
+          <mxGeometry x="20" y="190" width="380" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_ctrl" value="出站双闸&#xa;CLOUD_DATA_UPLOAD_ALLOWED 总开关&#xa;+ CLOUD_DATA_APPROVALS fingerprint&#xa;逐能力授权 · 缺授权→cloud_upload_not_authorized&#xa;endpoint 变更→授权失效" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="zone_t_cloud">
+          <mxGeometry x="20" y="320" width="380" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="te1" value="提问 / SSE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_fe" target="t_api" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te2" value="启动任务" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_api" target="t_loop" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te3" value="校验后的工具调用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_loop" target="t_exec" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te4" value="分发" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_exec" target="t_tools" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te5" value="登记 Evidence" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_tools" target="t_evid" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te6" value="融合输入" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_evid" target="t_reader" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te7" value="可选云 rerank" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_reader" target="t_adapter" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te8" value="候选答案" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_reader" target="t_gate" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te9" value="回答 / 拒答" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_gate" target="t_api" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te10" value="规划 / 生成（经 Adapter）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_loop" target="t_adapter" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te11" value="事件写入（Q3）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_api" target="t_evlog" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te12" value="能力 / 限额" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_reg" target="t_tools" parent="zone_t_res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te13" value="kb_search（内部 HTTP）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_tools" target="t_kb" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te14" value="web / arxiv / fetch 出站（经双闸）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_tools" target="t_src" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te15" value="出站（经双闸）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_adapter" target="t_models" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te16" value="云 OCR / vision / embedding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_ingest" target="t_adapter" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te17" value="执行" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_worker" target="t_ingest" parent="zone_t_ke">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te18" value="切分 / 嵌入结果" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_ingest" target="t_idx" parent="zone_t_ke">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te19" value="向量写入" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_idx" target="t_qd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te20" value="vector（经缓存）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_kb" target="t_qd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te21" value="keyword FTS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_kb" target="t_pg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te22" value="fencing / 任务态" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_worker" target="t_pg" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="te23" value="查询 embedding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=11;" edge="1" source="t_kb" target="t_qcache" parent="zone_t_ke">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
