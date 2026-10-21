@@ -1,0 +1,23 @@
+{
+  "experiment_version": "agent-improvement-v1-2026-10-21",
+  "base_freeze": "eval/baseline/round1.freeze.json",
+  "base_freeze_sha256": "3f0ee296f86f54f53c46e019ac92ae0470a95441d0d64f3379746083b0546972",
+  "reference_revision": "8486709e8e41ffd80aca2442ef60d71aabefa2b5",
+  "reference_loop_sha256": "ebea5162fc87082b92a64ded39a5303408fbde04b3d4092d53389128cf761699",
+  "corpus_text_sha256": "e1e4dd7ddaa73f501dcee62a73e5411438b934590742e77c74c560c5608fc030",
+  "variants": {
+    "baseline": "原 AgentLoop 固定提交；共用当前 provider/evidence/reader 和相同工具环境，不声称复现全部历史系统",
+    "gaps": "当前控制/预算/正文安全修正 + 显式缺口；禁验证反馈补搜和最终部分作答分支",
+    "feedback": "完整改进：显式缺口 + 验证反馈补搜 + 部分作答"
+  },
+  "search_policy": "同一实验按 tool+args 共享第一次外部响应（包括失败），保留快照；新查询允许取得新证据，逻辑工具调用仍各自计数。",
+  "runs_per_condition": 3,
+  "budget": {
+    "max_rounds": 3,
+    "max_tool_calls": 12,
+    "max_tokens": 20000,
+    "deadline_seconds": 180.0
+  },
+  "acceptance": "沿用 base_freeze 质量/安全门槛；逐题配对比较，金标准未核验/无真实云结果时不得作质量结论；无金额门槛不宣称费用验收。",
+  "mechanical_score_non_regression_tolerance": 0.05
+}

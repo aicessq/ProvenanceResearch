@@ -64,3 +64,16 @@
 **证据**：test_gaps.py 放置 10 条无关证据，目标事实位于第 1800 字后，验证一次真实 EvidenceReadTool 调用后 planner/writer 都能读到目标；原实现先红，修正后 agent 53 passed。
 
 **消融开关**：verification_feedback=False 同时关闭失败反馈内容、补检索和最终部分作答分支，避免 gap-only 对照意外获得反馈机制。正文安全重建和预算修正仍是两种新流程的共同基础，不能将其收益全归因于 gap。
+
+
+## 固定旧版本、消融与来源快照对照
+
+**解决的问题**：只测修改后的代码无法知道收益来自哪里；更换模型、网页变化或额外预算也会造成虚假的架构增益。
+
+**加入的机制**：独立 agent-improvement.freeze.json 固定旧 loop 提交与源码 hash、原冻结件 hash、页级文本指纹、三组定义与相同预算。评测专用入口读取并校验本仓库旧 loop 源码，不复制旧业务文件到生产；baseline/gaps/feedback 共用 provider/evidence/Reader 与五工具环境。gaps 组保留安全/控制修正但关闭反馈与最终部分作答，不能将所有差异都归为缺口单因素。
+
+**来源控制**：按 tool+args 共享首次外部响应（含失败），在各任务的新 EvidenceStore 中重新登记；每组仍消耗自己的逻辑工具预算。保存查询、原始 Evidence 快照、cache_hit、真实外部请求数及逐题结果；随机但可复现地轮换组执行顺序。HTTP 客户端按每次任务关闭，避免资源累积。
+
+**判读边界**：共享快照的延迟是受控实验延迟，并非完整冷启动线上成本；报告分别记外部真实请求/缓存次数。模型 token 用量可比，但未设计价表，currency_cost_unknown=true，不能宣称美元费用达标。baseline 固定的是旧 loop，其他依赖共用当前版本，不冒充完整历史系统复现。
+
+**验收记录**：新对照机械测试 5 passed；18 题×三组×3 次共 162 次 fake 运行，三组各 54 次、0 error，各自 5 个安全样例通过。报告 not_a_conclusion=true、verified_gold=0。缺真实凭证/人工核验，P4 实际质量验收保持待执行；不进入 Supervisor 实施。
