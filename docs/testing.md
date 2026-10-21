@@ -324,3 +324,9 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 
 - 两轴审查合并出 3 个实际边界，test_repair.py 新增 3 项先红后绿，11 passed。
 - 六目录：160 passed。研究服务上一轮完整回归 142 passed（新增部分作答 API 用例），9 条既有弃用警告；最终收尾会在审查修复后再核对相关接口。
+
+
+## 2026-10-21 评测失败计账回归
+
+- `python -X utf8 -m pytest tests_bridge/test_eval_accounting.py tests_bridge/test_p4_eval.py tests_bridge/test_agent_comparison.py -q`：21 passed（新两项先红后绿）。
+- 检查失败调用计数、已知 token 保留、未知费用标记、失败运行质量及合规为 0；未修改历史结果或冻结阈值。

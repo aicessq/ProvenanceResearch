@@ -182,7 +182,6 @@ def score_condition(runs_by_question: dict[str, list[Any]], questions: dict[str,
             latencies.append(run.latency_ms)
             if run.status == "error":
                 failures += 1
-                continue
             r5, r10, r20 = recall_at_k(run.ranked_refs, golds, 5), recall_at_k(run.ranked_refs, golds, 10), recall_at_k(run.ranked_refs, golds, 20)
             rank = mrr(run.ranked_refs, golds)
             cov = source_coverage(run.ranked_refs, golds)
@@ -196,10 +195,10 @@ def score_condition(runs_by_question: dict[str, list[Any]], questions: dict[str,
             usage = run.usage or {}
             if run.cost_unknown or not usage:
                 cost_unknown = True
-            else:
-                prompt_tokens += int(usage.get("prompt_tokens", 0))
-                completion_tokens += int(usage.get("completion_tokens", 0))
-                llm_calls += int(usage.get("llm_calls", 0))
+            # 部分已知用量照常累计，未知部分单独标记，不能抹掉前序已产生的费用。
+            prompt_tokens += int(usage.get("prompt_tokens", 0))
+            completion_tokens += int(usage.get("completion_tokens", 0))
+            llm_calls += int(usage.get("llm_calls", 0))
             if expects_refusal:
                 refusals.append(1.0 if run.status == "refused" else 0.0)
             else:

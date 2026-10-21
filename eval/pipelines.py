@@ -46,8 +46,13 @@ class UsageLLM:
         self.reported_usage = True
 
     async def generate(self, messages, metadata=None):
-        result = await self._inner.generate(messages, metadata)
         self.calls += 1
+        try:
+            result = await self._inner.generate(messages, metadata)
+        except BaseException:
+            # 已尝试的调用可能已计费；取消也不能报成零成本。异常原样向上传递。
+            self.reported_usage = False
+            raise
         pt = getattr(result, "prompt_tokens", None)
         ct = getattr(result, "completion_tokens", None)
         if pt is None or ct is None:
@@ -252,4 +257,7 @@ async def run_condition(
             status="error",
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
             error=f"{type(exc).__name__}: {exc}"[:200],
+            usage=({"prompt_tokens": llm.prompt_tokens, "completion_tokens": llm.completion_tokens,
+                    "llm_calls": llm.calls} if isinstance(llm, UsageLLM) else {}),
+            cost_unknown=True,
         )
