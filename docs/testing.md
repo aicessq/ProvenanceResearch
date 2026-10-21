@@ -318,3 +318,9 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - `python -X utf8 -m pytest tests_bridge/test_agent_comparison.py -q`：5 passed（旧源码非当前类/hash 拒绝、快照跨 store 复用、三组报告、缺 key 阻断、机制指标）。
 - `python -X utf8 -m eval.compare_agents --mode fake`：18×3×3=162 次运行，各组 54 次、0 error，各自安全 5/5 通过；报告 agent-improvement.fake.20261021-230512.json，not_a_conclusion=true、verified_gold=0。
 - 此报告为离线脚本模型，不提供真实质量/成本收益结论；live 仍需 LLM/Tavily 凭证和现有出站授权。原 round1 冻结件、题目内容及门槛未改变。
+
+
+## 2026-10-21 Agent 审查修复
+
+- 两轴审查合并出 3 个实际边界，test_repair.py 新增 3 项先红后绿，11 passed。
+- 六目录：160 passed。研究服务上一轮完整回归 142 passed（新增部分作答 API 用例），9 条既有弃用警告；最终收尾会在审查修复后再核对相关接口。

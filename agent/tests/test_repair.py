@@ -141,3 +141,63 @@ def test_semantic_verifier_requires_unambiguous_yes():
     from agent.citation_gate import Claim
     verifier = SemanticVerifier(ScriptLLM(["not yes"]))
     assert asyncio.run(verifier.check(Claim("事实", ("K1",)), [])) is False
+
+
+def test_partial_answer_retains_first_verified_claim_if_retry_is_all_bad():
+    store = EvidenceStore()
+    ev = seed(store)
+    bad = json.dumps({"answer": "提升2099倍", "claims": [{"claim": "提升2099倍", "citations": [ev.citation_id]}]})
+    answer = asyncio.run(AgentLoop(planner=ScriptLLM([PLAN_DONE]),
+        writer=ScriptLLM([output(ev.citation_id, mixed=True), bad]), store=store,
+        executor=ToolExecutor([]), gate=CitationGate(semantic_checker=YesChecker())).run("方法与提升"))
+    assert answer.status == "answered"
+    assert [c.claim for c in answer.claims] == ["采用检索方法"]
+    assert "2099" not in answer.answer
+
+
+def test_late_read_fact_reaches_actual_semantic_verifier():
+    from tools import EvidenceReadTool
+    fact = "关键方法是证据驱动检索。"
+    store = EvidenceStore()
+    ev = seed(store, "背景" * 1100 + fact)
+
+    class CheckWindow(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            self._responses = ["yes" if fact in messages[0].content.split('"evidence":', 1)[1] else "no"]
+            return await super().generate(messages, metadata)
+
+    planner = ScriptLLM([json.dumps({"tool_calls": [{"tool": "evidence_read", "args": {
+        "evidence_id": ev.citation_id}}]}), PLAN_DONE, PLAN_DONE])
+    writer = ScriptLLM([json.dumps({"answer": "", "claims": [{"claim": fact, "citations": [ev.citation_id]}]})] * 2)
+    budget = Budget()
+    answer = asyncio.run(AgentLoop(planner=planner, writer=writer, store=store,
+        executor=ToolExecutor([EvidenceReadTool(store=store)]), budget=budget,
+        gate=CitationGate(semantic_checker=SemanticVerifier(CheckWindow([]), budget=budget))).run("方法"))
+    assert answer.status == "answered"
+    assert fact in answer.answer
+    assert writer.stages == ["generate"]
+
+
+def test_partial_answer_exports_cited_evidence_evicted_by_new_read_context():
+    store = EvidenceStore()
+    ev = seed(store)
+
+    class Checker:
+        async def check(self, claim, evidence):
+            return claim.claim == "采用检索方法"
+
+    class Fetch:
+        name = "source_fetch"
+
+        async def execute(self, call_id, **args):
+            evidence = [seed(store, f"新正文{i}") for i in range(8)]
+            return ToolResult(call_id, "ok", evidence=evidence)
+
+    planner = ScriptLLM([PLAN_DONE, json.dumps({"tool_calls": [{"tool": "source_fetch", "args": {"source_id": ev.source_id}}]}), PLAN_DONE])
+    first = json.dumps({"answer": "", "claims": [
+        {"claim": "采用检索方法", "citations": [ev.citation_id]},
+        {"claim": "未经支持的预测", "citations": [ev.citation_id]}]})
+    answer = asyncio.run(AgentLoop(planner=planner, writer=ScriptLLM([first, "bad json"]),
+        store=store, executor=ToolExecutor([Fetch()]), gate=CitationGate(semantic_checker=Checker())).run("方法与预测"))
+    assert answer.status == "answered"
+    assert set(answer.citations) <= {item.citation_id for item in answer.evidence}

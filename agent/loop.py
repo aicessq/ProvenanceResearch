@@ -32,6 +32,8 @@ from evidence.store import EvidenceStore
 from providers.llm.base import LLMMessage
 from tools.base import ToolResult
 
+READ_CONTEXT_CHARS = 4000
+
 
 class PlannerLLM(Protocol):
     """Planner/Writer/Verifier 共用的 LLM 能力（经 providers.LLMProvider）。"""
@@ -65,7 +67,7 @@ class SemanticVerifier:
         payload = {
             "claim": claim.claim,
             "citations": list(claim.citations),
-            "evidence": [{"citation_id": ev.citation_id, "text": (ev.raw_text or "")[:2000]} for ev in evidence],
+            "evidence": [{"citation_id": ev.citation_id, "text": (ev.raw_text or "")[:READ_CONTEXT_CHARS]} for ev in evidence],
         }
         result = await _generate(self._llm,
             [LLMMessage(role="user", content=f"判断 claim 是否被证据支撑，只答 yes/no：{json.dumps(payload, ensure_ascii=False)}")],
@@ -223,7 +225,7 @@ class AgentLoop:
                     if result.status == "ok" and name in ("evidence_read", "source_fetch"):
                         read = [self._store.get(cid) for cid in observation["evidence_ids"]]
                         observation["read_excerpts"] = [{"citation_id": ev.citation_id,
-                            "content_scope": ev.content_scope, "text": (ev.raw_text or "")[:4000]}
+                            "content_scope": ev.content_scope, "text": (ev.raw_text or "")[:READ_CONTEXT_CHARS]}
                             for ev in read]
                         for ev in read:
                             if ev.citation_id not in self._read_ids:
@@ -325,18 +327,21 @@ class AgentLoop:
                 continue
             await emit({"type": "citation", "claims": len(claims), "attempt": attempt})
             report = await budget.guard(lambda: self._gate.verify(claims, self._store))
-            supported = [c.claim for c in report.checks if c.passed]
+            current_supported = [c.claim for c in report.checks if c.passed]
+            for claim in current_supported:
+                if claim not in supported:
+                    supported.append(claim)
             if report.passed:
                 used = tuple(sorted({cid for c in claims for cid in c.citations}))
                 await emit({"type": "done", "status": "answered"})
                 return AgentAnswer(
                     status="answered",
                     stop_reason=stop_reason,
-                    answer=self._render(supported),
+                    answer=self._render(current_supported),
                     limitations=tuple("尚未充分支持：" + g["question"] for g in self._gaps.snapshot() if g["status"] != "resolved"),
                     claims=tuple(claims),
                     citations=used,
-                    evidence=tuple(top),
+                    evidence=self._answer_evidence(current_supported, top),
                     trace=tuple(trace),
                     budget_report=budget.report(),
                 )
@@ -365,7 +370,7 @@ class AgentLoop:
                                answer=self._render(supported), claims=tuple(supported),
                                citations=tuple(sorted({cid for c in supported for cid in c.citations})),
                                limitations=("部分结论未通过证据验证，已省略。",),
-                               evidence=tuple(top), trace=tuple(trace), budget_report=budget.report())
+                               evidence=self._answer_evidence(supported, top), trace=tuple(trace), budget_report=budget.report())
 
         # 一次重生成后仍失败 → 拒答
         await emit({"type": "done", "status": "refused"})
@@ -390,6 +395,13 @@ class AgentLoop:
         for ev in fuse(self._collect_channels()):
             combined.setdefault(ev.citation_id, ev)
         return list(combined.values())[:8]
+
+    def _answer_evidence(self, claims: list[Claim], top: list[Evidence]) -> tuple[Evidence, ...]:
+        evidence = {ev.citation_id: ev for ev in top}
+        for claim in claims:
+            for cid in claim.citations:
+                evidence.setdefault(cid, self._store.get(cid))
+        return tuple(evidence.values())
 
     def _collect_channels(self) -> dict[str, list[Evidence]]:
         """按 source_type 收集证据通道供 Reader 融合。"""
@@ -465,7 +477,7 @@ class AgentLoop:
                 {
                     "citation_id": ev.citation_id,
                     "scope": ev.content_scope,
-                    "text": (ev.raw_text or "")[:4000 if ev.citation_id in self._read_ids else 1500],
+                    "text": (ev.raw_text or "")[:READ_CONTEXT_CHARS if ev.citation_id in self._read_ids else 1500],
                 }
                 for ev in top
             ],
