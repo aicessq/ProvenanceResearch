@@ -330,3 +330,12 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 
 - `python -X utf8 -m pytest tests_bridge/test_eval_accounting.py tests_bridge/test_p4_eval.py tests_bridge/test_agent_comparison.py -q`：21 passed（新两项先红后绿）。
 - 检查失败调用计数、已知 token 保留、未知费用标记、失败运行质量及合规为 0；未修改历史结果或冻结阈值。
+
+
+## 2026-10-21 最终回归与可复现报告
+
+- 六目录标准命令：**162 passed**（最终代码）。研究服务根 .venv：**142 passed**，9 条既有弃用警告。统一前端 npm run build：通过，43 modules。
+- check_corpus.py：28 条清单、21 份页级镜像通过；题集 schema/配额校验通过（4 题因既有仓库外来源跳过逐字核对，verified=0）；仓库契约、更新文档本地链接、git diff --check 通过。
+- 最终离线对照：agent-improvement.fake.20261021-231729.json，报告代码版本 badeeae32036bc5ed7cd5e0823db6af82ebfb94c，生成时 working_tree_dirty=false；源码指纹与最终代码逐项匹配。三组各 54 次、合计 162 次，0 error，各组安全样例 5/5 通过；not_a_conclusion=true，不是质量结论。
+- 实际运行 live 入口就绪检查：启动前明确报缺 LLM_API_KEY/DEEPSEEK_API_KEY 并退出，未发出云请求。真实云质量对照、人工金标准核验、完整 P4 验收仍待外部条件；不进入 Supervisor。
+- 修复后 Standards/Spec 两轴均复核通过；审查原始发现与逐项验收见 agent-implementation-review.md。知识引擎代码未变，未重跑依赖本地历史推理环境的 KE 测试；不宣称 KE 全云迁移或真实入库集成通过。
