@@ -152,3 +152,23 @@ def test_search_evidence_can_be_fetched_without_separate_registry_seed():
     assert result.status == "ok"
     assert result.evidence[0].content_scope == "fulltext"
     assert result.evidence[0].raw_text == "正文内容"
+
+
+def test_explicit_read_reaches_planner_and_writer_beyond_search_summary():
+    from tools import EvidenceReadTool
+    store = EvidenceStore()
+    for i in range(10):
+        ev = _ev(f"irrelevant{i}", text="无关检索结果")
+        store.register(replace(ev, citation_id=ev.make_citation_id()))
+    target = _ev("target", text="背景" * 900 + "关键方法是证据驱动检索。")
+    target = store.register(replace(target, citation_id=target.make_citation_id()))
+    planner = CapturePlanner([json.dumps({"tool_calls": [{"tool": "evidence_read", "args": {
+        "evidence_id": target.citation_id}}]}), json.dumps({"tool_calls": []})])
+    writer = CapturePlanner([json.dumps({"answer": "", "claims": [{"claim": "关键方法是证据驱动检索。",
+                                                                  "citations": [target.citation_id]}]})])
+    answer = asyncio.run(AgentLoop(planner=planner, writer=writer, store=store,
+        executor=ToolExecutor([EvidenceReadTool(store=store)]), gate=CitationGate(
+            semantic_checker=YesChecker())).run("关键方法是什么"))
+    assert answer.status == "answered"
+    assert "关键方法是证据驱动检索" in planner.inputs[1]
+    assert "关键方法是证据驱动检索" in writer.inputs[0]

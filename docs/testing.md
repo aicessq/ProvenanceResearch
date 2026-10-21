@@ -293,3 +293,9 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 根 .venv 运行 researcher/deep_research_system/tests/test_api_v1.py：13 passed；test_agentic_service.py：10 passed。新增 response_model/SSE 局限性不丢失及正文无无据数字断言。
 - 前端首次 build 缺 node_modules；按既有 package-lock.json 运行 npm ci --no-audit --no-fund 后 npm run build 通过（43 modules），未修改依赖声明或锁文件。
 - 所有新增模型/HTTP 响应均为离线 fixture；未使用云密钥，不把测试通过当 P4 质量收益。
+
+
+## 2026-10-21 Agent 阅读上下文修正
+
+- `python -X utf8 -m pytest agent/tests -q`：53 passed；包含目标落在原摘要/原 top8 之外的真实 evidence_read 用例。
+- 新流程无证据身份变化；消融明确关闭验证反馈内容，避免实验污染。
