@@ -130,7 +130,7 @@ Embedding 还需 `EMBEDDING_DIMENSION`；索引与查询必须使用同一 provi
 
 每条事实性结论必须挂 `[citation_id]`，引用只能来自登记 Evidence。文本/OCR 验证数字、专名和关键断言的对应 span，再做语义复检；OCR 歧义/关键数字须回看原区域。视觉断言需要绑定原资产/区域并由云视觉验证，不能仅用同模型的文字描述自证；评测采用人工抽样裁决。无法验证的精确数字或图片外推必须拒答。
 
-失败携带脱敏的 unsupported_claims 重生成一次，仍失败返回 `status=refused, reason=citation_gate_failed`，不会把部分不支持的句子留在成功答案中。验证/重生成使用剩余任务预算，不允许新开无限检索循环。`answered/refused` 是回答结果，与任务 `completed/failed/cancelled` 生命周期分开。
+失败携带结构化 unsupported_claims 反馈，缺正文/支持时可在剩余检索轮数内定向补证据，最多重生成一次；逐条验证后如仍有受支持结论，最终正文只从通过项重建，并在 limitations 标明省略/未解部分；无受支持结论则返回 `status=refused, reason=citation_gate_failed`。未验证的 writer 自由正文不直接发布。验证/重生成使用同一任务剩余预算，补检索不重置轮数、调用数或时限，不允许新开无限检索循环。`answered/refused` 是回答结果，与任务 `completed/failed/cancelled` 生命周期分开。
 
 公共接口统一 `/api/v1`，FastAPI schema 为 HTTP/OpenAPI 契约来源，错误采用脱敏的 `application/problem+json` 与 request_id。旧接口在兼容期保留，KB 内部接口不直接暴露为前端依赖。SSE 版本化事件含 task_id/event_id/sequence/occurred_at/payload，类型为 `meta/plan/tool_call/tool_result/source_status/evidence/token_delta/citation/done/error`，支持 Last-Event-ID 回放、终态唯一和多任务隔离。UI 展示计划摘要与工具事实，不输出模型隐私推理或未校验结论；只有闸门通过的答案 token 才可作为最终回答展示。
 

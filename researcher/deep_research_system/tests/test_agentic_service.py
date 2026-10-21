@@ -229,7 +229,8 @@ def test_citation_gate_failure_refuses_after_regeneration() -> None:
 
         def factory():
             runtime = make_runtime(store.store, checker=NoChecker())
-            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store.store))
+            # 验证失败后补检索规划明确停止，再重写；脚本不能耗尽后返回非法 {}。
+            runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE, PLAN_DONE]), AutoWriter(store.store))
             return runtime
 
         service = service_with(factory)

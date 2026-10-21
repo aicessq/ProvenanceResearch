@@ -379,6 +379,7 @@ class AgenticTaskService:
             "budget_report": dict(answer.budget_report),
             "evidence": [dataclasses.asdict(ev) for ev in answer.evidence],
             "gaps": list(answer.gaps),
+            "limitations": list(answer.limitations),
         }
         if answer.status == "answered":
             return {

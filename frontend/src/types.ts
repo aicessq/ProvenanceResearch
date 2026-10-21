@@ -41,6 +41,8 @@ export interface AnsweredOutcome {
   budget_report: Record<string, number>;
   evidence: EvidenceView[];
   latency_ms?: number | null;
+  gaps?: KnowledgeGapView[];
+  limitations?: string[];
 }
 
 export interface RefusedOutcome {
@@ -50,6 +52,16 @@ export interface RefusedOutcome {
   budget_report: Record<string, number>;
   evidence: EvidenceView[];
   latency_ms?: number | null;
+  gaps?: KnowledgeGapView[];
+  limitations?: string[];
+}
+
+export interface KnowledgeGapView {
+  gap_id: string;
+  question: string;
+  status: "open" | "resolved" | "unresolved";
+  required_scope: string;
+  supporting_citation_ids: string[];
 }
 
 export type AnswerView = AnsweredOutcome | RefusedOutcome;

@@ -88,6 +88,39 @@ def parse_sse(body: str) -> list[dict]:
     return frames
 
 
+def test_partial_answer_preserves_limitations_in_http_and_sse(monkeypatch):
+    def factory():
+        holder = FakeStoreHolder()
+        runtime = make_runtime(holder.store, checker=YesChecker())
+
+        class PartialWriter(ScriptLLM):
+            async def generate(self, messages, metadata=None):
+                cid = holder.store.all()[0].citation_id
+                self._responses = [json.dumps({"answer": "无据正文 2099", "claims": [
+                    {"claim": "为了保障网络安全，制定本法。", "citations": [cid]},
+                    {"claim": "2099 年施行", "citations": [cid]}]})]
+                return await super().generate(messages, metadata)
+
+        runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), PartialWriter([]))
+        return runtime
+
+    with make_client(monkeypatch, factory) as client:
+        created = client.post("/api/v1/tasks", json={"query": "研究目的及施行时间"}).json()
+        task_id = created["task_id"]
+        view = wait_task(client, task_id)
+        outcome = view["answer"]
+        assert outcome["status"] == "answered"
+        assert len(outcome["claims"]) == 1
+        assert "2099" not in outcome["text"]
+        assert outcome["limitations"]
+        assert "gaps" in outcome
+        frames = parse_sse(client.get(f"/api/v1/tasks/{task_id}/events").text)
+        # 同一结局经 HTTP response_model 和 SSE 均保留扩展字段。
+        done = [frame for frame in frames if frame.get("event") == "done"]
+        assert len(done) == 1
+        assert done[0]["data"]["payload"]["answer"]["limitations"] == outcome["limitations"]
+
+
 def test_create_and_complete_task_with_answered_outcome(monkeypatch) -> None:
     store = FakeStoreHolder()
     with make_client(monkeypatch, answered_factory(store)) as client:

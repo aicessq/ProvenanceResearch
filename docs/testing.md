@@ -285,3 +285,11 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - `python -X utf8 -m pytest agent/tests tools/tests tests_bridge -q`：84 passed。
 - 根 .venv Python 运行 researcher/deep_research_system/tests/test_agentic_service.py：10 passed（结果追加 gaps，原 HTTP/SSE 生命周期保持）。
 - 新增缺口闭合/失败/身份接线用例均走真实 AgentLoop/ToolExecutor；HTTP 为录制响应，无密钥无外送。未宣称真实质量改善。
+
+
+## 2026-10-21 dev 改进切片 3
+
+- 六目录标准命令：151 passed（新增 8 项 repair/预算回归，首批 5 项先红后绿）。
+- 根 .venv 运行 researcher/deep_research_system/tests/test_api_v1.py：13 passed；test_agentic_service.py：10 passed。新增 response_model/SSE 局限性不丢失及正文无无据数字断言。
+- 前端首次 build 缺 node_modules；按既有 package-lock.json 运行 npm ci --no-audit --no-fund 后 npm run build 通过（43 modules），未修改依赖声明或锁文件。
+- 所有新增模型/HTTP 响应均为离线 fixture；未使用云密钥，不把测试通过当 P4 质量收益。

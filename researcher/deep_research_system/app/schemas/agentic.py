@@ -57,6 +57,8 @@ class AnsweredOutcome(BaseModel):
     budget_report: dict[str, Any]
     evidence: list[dict[str, Any]]
     latency_ms: float | None = None
+    gaps: list[dict[str, Any]] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 class RefusedOutcome(BaseModel):
@@ -68,6 +70,8 @@ class RefusedOutcome(BaseModel):
     budget_report: dict[str, Any]
     evidence: list[dict[str, Any]]
     latency_ms: float | None = None
+    gaps: list[dict[str, Any]] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 AnswerView = Annotated[Union[AnsweredOutcome, RefusedOutcome], Field(discriminator="status")]

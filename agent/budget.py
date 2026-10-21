@@ -8,9 +8,10 @@ max_tokens=20000、deadline=180s。执行前预留、超出即停止，
 from __future__ import annotations
 
 import time
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable
+from typing import Any, Awaitable, Callable
 
 
 class AgentState(str, Enum):
@@ -35,6 +36,12 @@ DEFAULT_MAX_ROUNDS = 3
 DEFAULT_MAX_TOOL_CALLS = 12
 DEFAULT_MAX_MODEL_TOKENS = 20000
 DEFAULT_DEADLINE_SECONDS = 180.0
+
+
+class BudgetLimit(Exception):
+    def __init__(self, reason: StopReason) -> None:
+        self.reason = reason
+        super().__init__(reason.value)
 
 
 @dataclass
@@ -73,17 +80,32 @@ class Budget:
     def begin_round(self) -> None:
         self.rounds += 1
 
-    def exceeded(self) -> StopReason | None:
+    def exceeded(self, *, include_tools: bool = True) -> StopReason | None:
         """预算/时限是否已超：超时优先于超量报告。"""
         if self.elapsed() > self.deadline_seconds:
             return StopReason.DEADLINE_EXCEEDED
         if (
-            self.tool_calls >= self.max_tool_calls
+            (include_tools and self.tool_calls >= self.max_tool_calls)
             or self.tokens >= self.max_tokens
             or self.rounds > self.max_rounds
         ):
             return StopReason.BUDGET_EXHAUSTED
         return None
+
+    def ensure(self, *, include_tools: bool = False) -> None:
+        reason = self.exceeded(include_tools=include_tools)
+        if reason is not None:
+            raise BudgetLimit(reason)
+
+    async def guard(self, operation: Callable[[], Awaitable[Any]]) -> Any:
+        """每个出站阶段共用剩余时限；wait_for 取消在途调用，不截断父任务取消。"""
+        self.ensure()
+        try:
+            result = await asyncio.wait_for(operation(), timeout=max(0, self.deadline_seconds - self.elapsed()))
+        except TimeoutError as exc:
+            raise BudgetLimit(StopReason.DEADLINE_EXCEEDED) from exc
+        self.ensure()
+        return result
 
     def report(self) -> dict:
         return {

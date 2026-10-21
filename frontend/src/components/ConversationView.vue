@@ -17,6 +17,8 @@ const refusalLabels: Record<string, string> = {
   citation_gate_failed: "引用闸门未通过（结论无法被证据支持）",
   budget_exhausted: "预算耗尽仍无充分证据",
   no_supported_claim: "没有任何可验证的结论",
+  invalid_planner_output: "研究规划格式无效，无法安全继续",
+  deadline_exceeded: "研究时限已到，未能完成证据验证",
 };
 
 function label(refusal: RefusedOutcome): string {
@@ -52,6 +54,10 @@ function label(refusal: RefusedOutcome): string {
           <span v-if="answered.latency_ms" class="badge">{{ (answered.latency_ms / 1000).toFixed(1) }}s</span>
         </div>
         <p class="answer-text">{{ answered.text }}</p>
+        <div v-if="answered.limitations?.length" class="claims" role="note" aria-label="研究局限">
+          <div class="claims-title">研究局限</div>
+          <ul><li v-for="item in answered.limitations" :key="item">{{ item }}</li></ul>
+        </div>
         <div v-if="answered.claims.length" class="claims">
           <div class="claims-title">逐条结论与依据</div>
           <ul>

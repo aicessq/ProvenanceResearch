@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useTasksStore } from "../stores/tasks";
-import type { SseEvent } from "../types";
+import type { KnowledgeGapView, SseEvent } from "../types";
 
 const store = useTasksStore();
 
@@ -40,8 +40,13 @@ function summary(event: SseEvent): string {
   switch (event.type) {
     case "meta":
       return `预算 ${JSON.stringify(p.budget ?? {})}`;
-    case "plan":
+    case "plan": {
+      const gaps = p.gaps as KnowledgeGapView[] | undefined;
+      if (gaps?.length) {
+        return `第 ${p.round} 轮 · 缺口已解决 ${gaps.filter(g => g.status === "resolved").length}/${gaps.length}`;
+      }
       return p.progress === undefined ? `第 ${p.round} 轮` : `第 ${p.round} 轮（有新证据: ${p.progress ? "是" : "否"}）`;
+    }
     case "tool_call":
       return `${p.tool}(${JSON.stringify(p.args ?? {})})`.slice(0, 90);
     case "tool_result":

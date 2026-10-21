@@ -44,6 +44,8 @@ class ClaimCheck:
     claim: Claim
     passed: bool
     reason: str = ""
+    code: str = ""
+    action: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,11 @@ class GateReport:
     @property
     def failed_claims(self) -> list[ClaimCheck]:
         return [c for c in self.checks if not c.passed]
+
+    def feedback(self) -> list[dict]:
+        return [{"claim": c.claim.claim, "citations": list(c.claim.citations),
+                 "required_scope": c.claim.scope, "code": c.code, "action": c.action,
+                 "reason": c.reason} for c in self.failed_claims]
 
 
 class SemanticChecker(Protocol):
@@ -109,7 +116,7 @@ class CitationGate:
         for cid in claim.citations:
             ev = store.get(cid)
             if ev is None:
-                return ClaimCheck(claim, False, f"引用未登记: {cid}")
+                return ClaimCheck(claim, False, f"引用未登记: {cid}", "unregistered_citation", "reject")
             evidence.append(ev)
 
         # 2. scope 正确：claim 要求的范围不能超过证据内容范围
@@ -122,6 +129,7 @@ class CitationGate:
                 claim,
                 False,
                 f"claim 需要 {claim.scope} 范围，证据最高只有 {evidence[0].content_scope}",
+                "insufficient_scope", "fetch",
             )
 
         # 3. 数字/专名存在（全角/半角归一化后字面匹配）
@@ -129,14 +137,14 @@ class CitationGate:
         claim_norm = normalize_text(claim.claim)
         for number in _NUMBER_RE.findall(claim_norm):
             if number not in joined:
-                return ClaimCheck(claim, False, f"数字 {number} 未在证据原文中出现")
+                return ClaimCheck(claim, False, f"数字 {number} 未在证据原文中出现", "number_missing", "rewrite")
         for proper in _QUOTED_RE.findall(claim.claim):
             if normalize_text(proper) not in joined:
-                return ClaimCheck(claim, False, f"专名 {proper} 未在证据原文中出现")
+                return ClaimCheck(claim, False, f"专名 {proper} 未在证据原文中出现", "name_missing", "rewrite")
 
         # 4. semantic support
         if self._semantic is not None:
             supported = await self._semantic.check(claim, evidence)
             if not supported:
-                return ClaimCheck(claim, False, "语义复检未通过")
+                return ClaimCheck(claim, False, "语义复检未通过", "unsupported_claim", "search")
         return ClaimCheck(claim, True)
