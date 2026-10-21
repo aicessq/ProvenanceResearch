@@ -1,3 +1,6 @@
 # Frozen evaluation inputs are hashed byte-for-byte; keep checkout bytes stable.
 /eval/questions/questions.v1.jsonl text eol=lf
 /eval/corpus/manifest.jsonl text eol=lf
+/eval/corpus/pdf/rfc_8446.txt text eol=lf
+/eval/corpus/pdf/rfc_6749.txt text eol=lf
+/eval/corpus/pdf/rfc_7519.txt text eol=lf

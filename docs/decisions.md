@@ -433,3 +433,9 @@
 
 - run_condition 接受可注入 loop_factory，并保存 gaps/limitations/工具轨迹，默认仍运行现有 AgentLoop，A/B/C 含义不变。工具构建器可显式加入 fetch/read，并支持注入受上下文管理的 HTTP client；理由：对照需要共用真实流水线而非复制业务实现。
 - 安全 fixture 为额外修复规划提供有效停止输出，不能因脚本耗尽的格式错误而假通过；增加断言确保伪引用/摘要越权确因引用闸门拒绝。P4 14 passed，旧 A/B/C fake runner 完整跑通，safety=PASS。该模块独立提交。
+
+
+## 2026-10-21 评测资产模块：RFC 字节复现
+
+- 完整语料检查发现三个 RFC txt 的 Windows checkout CRLF 与冻结 LF 不符；已逐一验证 HEAD 和恢复 LF 的 hash 都等于原 manifest 值。仅给这三个路径增加 eol=lf 并恢复本地换行，不改语料或冻结值。理由：正式跑分前必须验证原资产，不能只校验题库/manifest 自身。
+- check_corpus.py 与 P4 14 项测试全部通过，按用户要求作为独立模块提交。

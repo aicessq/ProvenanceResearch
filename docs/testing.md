@@ -305,3 +305,9 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 
 - `python -X utf8 -m pytest tests_bridge/test_p4_eval.py -q`：14 passed，安全样例额外检查拒答原因。
 - 旧 runner fake A/B/C 跑通，报告 round1.fake.20261021-230051.json；仅机械验证，无质量结论。
+
+
+## 2026-10-21 评测资产字节校验
+
+- check_corpus.py 初次发现 3 项 RFC txt hash 不符，证实为 CRLF；固定 LF 后 28 条 manifest/21 份页级文本校验通过。
+- P4 14 passed；题集校验 56 条 schema/配额通过，其中 4 题按既有规则因仓库外语料跳过逐字核对，verified=0 保持不变。
