@@ -122,3 +122,8 @@
 - P3 按能力加无凭证 fake/recorded cloud、工具、索引身份、OCR/vision fixture 和真实 graph 契约测试；mock 明确限于测试，记录响应脱敏且不包含用户私密资产。
 - 真实 PG/Redis/Qdrant integration 使用专用测试库，可先放 main/手动/定时任务；真实云 smoke 与质量评测另用授权凭证、样本和预算，普通 PR 不调用付费云服务。
 - 公共契约冻结后检查 OpenAPI/SSE 兼容；签名、多架构镜像、固定 Compose/.env.example、升级/索引迁移说明及发行包在应用可发布且端到端 smoke 通过后由 tag 触发。CD 是用户可安装发行物，不连接用户本机自动部署。
+
+
+## 2026-10-21 dev 增量记录（不替代阶段验收）
+
+P3d 增加显式知识缺口/停止校验/验证反馈与受限部分作答，保留证据契约和全云约束；实际机制及原因见 [agent-mechanisms.md](agent-mechanisms.md)。P4 增加固定旧 loop、gap-only、完整反馈三组的同预算对照及来源快照，离线 162 次跑通；入口见 [eval/README.md](../eval/README.md)。本机无云凭证、金标准未人工核验，真实质量收益与 P4 完整验收仍待执行；不进入 Supervisor，不将离线通过写成阶段完成。
