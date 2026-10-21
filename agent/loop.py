@@ -140,10 +140,23 @@ class AgentLoop:
 
         # ---- 有界检索循环 ----
         while budget.remaining_rounds() > 0 and stop_reason is None:
+            stop_reason = budget.exceeded()
+            if stop_reason is not None:
+                break
             budget.begin_round()
             await emit({"type": "plan", "round": budget.rounds})
 
-            plan = await self._call_planner(question, emit)
+            try:
+                plan = await self._call_planner(question, emit)
+            except ValueError:
+                await emit({"type": "error", "reason": "invalid_planner_output"})
+                await emit({"type": "done", "status": "refused"})
+                return AgentAnswer(status="refused", stop_reason=StopReason.NO_PROGRESS,
+                                   refusal_reason="invalid_planner_output", trace=tuple(trace),
+                                   budget_report=budget.report())
+            stop_reason = budget.exceeded()
+            if stop_reason is not None:
+                break
             tool_calls = plan.get("tool_calls") or []
             if not tool_calls:
                 stop_reason = StopReason.SUFFICIENT_EVIDENCE
@@ -204,7 +217,7 @@ class AgentLoop:
             await emit({"type": "plan", "round": budget.rounds, "progress": made_progress})
 
         if stop_reason is None:
-            stop_reason = StopReason.SUFFICIENT_EVIDENCE
+            stop_reason = StopReason.BUDGET_EXHAUSTED
 
         evidence_all = self._store.all()
         budget_report = budget.report()
@@ -252,7 +265,7 @@ class AgentLoop:
                 await emit({"type": "done", "status": "answered"})
                 return AgentAnswer(
                     status="answered",
-                    stop_reason=StopReason.SUFFICIENT_EVIDENCE,
+                    stop_reason=stop_reason,
                     answer=answer_text,
                     claims=tuple(claims),
                     citations=used,
@@ -317,10 +330,14 @@ class AgentLoop:
                 "completion_tokens": result.completion_tokens,
             }
         )
-        try:
-            return json.loads(result.text)
-        except json.JSONDecodeError:
-            return {"tool_calls": []}
+        plan = json.loads(result.text)
+        if not isinstance(plan, dict) or not isinstance(plan.get("tool_calls"), list):
+            raise ValueError("planner 必须返回 tool_calls 数组")
+        for call in plan["tool_calls"]:
+            if (not isinstance(call, dict) or not isinstance(call.get("tool"), str)
+                    or not call["tool"].strip() or not isinstance(call.get("args"), dict)):
+                raise ValueError("非法工具调用结构")
+        return plan
 
     async def _call_writer(self, question: str, top: list[Evidence], attempt: int, emit: Any) -> tuple[str, list[Claim]]:
         payload = {

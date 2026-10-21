@@ -177,7 +177,7 @@ def test_repeated_call_without_new_evidence_stops_no_progress() -> None:
     answer = asyncio.run(loop.run("q"))
     # 第一次调用产生证据；之后重复调用无新证据 → no_progress 早停（不再进下一轮）
     assert answer.status == "answered"
-    assert answer.stop_reason == StopReason.SUFFICIENT_EVIDENCE  # 有证据可作答
+    assert answer.stop_reason == StopReason.NO_PROGRESS  # 有据可作答，但保留检索停止原因
     repeat_events = [t for t in answer.trace if t.get("reason") == "no_progress_repeat"]
     assert repeat_events, [t for t in answer.trace]
     # 早停后总工具调用远小于轮数上限可容纳的次数

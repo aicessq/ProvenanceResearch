@@ -377,3 +377,29 @@
 - OCR 复测（用户开通"通用文字识别（标准含位置版）"后）：`general` 端点 OK 0.4s，合成图转录 `'HELLO'`、bbox 归一化 0–1、confidence=None 如实记录（响应未给 probability，不伪造）——**四路 smoke（OCR/视觉/LLM/搜索）至此全通**。
 - 决定（用户同日批准 2、3 两项）：① `endpoint_guard.ALLOWED_PROVIDER_HOSTS` 增 `opencode: ("opencode.ai",)`（精确主机匹配；+3 测试：网关放行 1、错主机/串 provider 拒绝 2）——设置面板现在可保存 mimo 配置，白名单缺口闭合；② `.env.example` OCR 段补 `OCR_API_SECRET` 字段（契约缺口闭合：百度需 API Key+Secret Key 两件）。
 - 验收：researcher 141（+3）、六目录 130、仓库契约全绿。`.env.example` 的 `LLM_SESSION_ID` 小缺口同日经用户批准补齐（opencode 会话头可选覆盖值，缺省自动生成 uuid；补后仓库契约校验通过）。
+
+## 2026-10-21 Deep Research 上游调研：保留证据契约，优先显式缺口循环
+
+- 决定：本轮仅做用户要求的三项目源码调研，新增 [deep-research-comparison.md](deep-research-comparison.md)，不修改生产代码、模型配置、依赖、路线图阶段或冻结评测件。QX 确认为 qx-labs/agents-deep-research；三仓库均锁定核查提交、许可证与归档状态。
+- 保留：Evidence v2、Source Registry、ToolExecutor、Citation Gate、共享预算和 SSE v1。理由：上游的自然语言研究摘要、模型自报完成、分支轮次/并发限制不能替代本项目的溯源、失败语义及全任务预算契约；生产继续全云、无本地权重或 mock 降级。
+- 候选顺序（尚未实施）：QX 显式知识缺口及验证反馈闭环优先；Skywork 仅借鉴结构化委派与完成条件；Open Deep Research 作为同源同模型同预算的 Supervisor 对照参考。理由：现有 AgentLoop 已可追加检索，旧图已有分层结构，近期更应解决缺口可追踪性与 P4 已记录误拒/质量门槛问题，不能凭增加 Agent 数量宣称增益。
+- 范围边界：Skywork 当前主分支重心已转向自演进资源体系，不迁入；Open 已归档，仅锁版本参考。部分作答必须重建并核验正文；分层并行需在阶段前置及范围确认后实验。以上均为调研建议，不代表实施批准或阶段验收通过。
+
+## 2026-10-21 dev 分支 Deep Research 改进计划
+
+- 用户要求在 dev 分支修改项目、先制定计划；已核实当前分支为 dev，保留上一轮未提交调研与决策记录。本轮新增 [实施计划](deep-research-improvement-plan.md)，业务代码尚未修改。
+- 顺序：先核对阶段前置和回归基线，再修停止判定、增加显式知识缺口、接通验证反馈与受限部分作答，最后同预算消融和 P4 重新验收。理由：先消除错误完成信号并解决已有误拒问题，便于逐步归因，不以多 Agent 数量替代质量证据。
+- 保留共享预算、证据登记、引用闸门、云出站授权和全云约束；不改历史评测件及阶段状态。Supervisor/结构化委派为验收后的下一轮候选，不并入本轮核心实施。
+
+## 2026-10-21 Windows 离线评测：固定冻结输入的换行
+
+- 现象：本机无常用路径凭证文件，LLM_API_KEY/DEEPSEEK_API_KEY/TAVILY_API_KEY 环境变量未配置；离线评测启动被冻结指纹拦截，P4 测试 13 passed / 1 failed。
+- 根因：两个冻结 JSONL 在 Git index 中为 LF、本机 checkout 为 CRLF；原始字节 hash 不匹配，而换行恢复 LF 后及 HEAD 字节 hash 均与冻结件一致，证明此次差异只在换行。
+- 决定：新增 .gitattributes 仅将题库和 manifest 固定 eol=lf，并恢复本地对应换行。保留逐字节指纹检查，不重算冻结值、不改题目、不放宽门槛。理由：跨系统 checkout 应复现同一冻结数据；缺云凭证不通过本地模型或 mock 质量分替代正式评测。此次 fake 运行仅验证评测机制和安全样例。
+
+## 2026-10-21 dev 实施切片 1：规划校验与停止原因
+
+- 用户授权按既有计划实施。新增 [机制说明](agent-mechanisms.md)，逐项说明加入原因、行为、保留约束和测试证据；不宣称 P4 质量门槛已通过。
+- 校验 planner 输出，不再将畸形结果默认为空调用；预算前后检查、轮次耗尽及无进展保留真实停止原因，writer 成功不覆盖。理由：修复假完成信号，为后续缺口闭环提供可靠控制状态。
+- 基线六目录 130 passed。新增 7 个控制流用例先验证全部失败，修改后 agent+P4 为 52 passed；原 no_progress 测试的 sufficient_evidence 断言按本次语义修正。原公开枚举不变。
+- 本机研究服务缺 loguru/aiosqlite；在 gitignored .venv（复用既有依赖）补装清单已声明的 loguru==0.7.3/aiosqlite==0.22.1，不修改应用依赖清单，不安装本地模型。研究服务回归另记实测结果。

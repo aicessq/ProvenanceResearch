@@ -263,3 +263,18 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 | 六目录 / 仓库契约 | 原命令 | `130 passed` / 通过 |
 
 收尾改动：`endpoint_guard` 增 `opencode: ("opencode.ai",)`（用户批准）；`.env.example` 补 `OCR_API_SECRET`（用户批准）。
+
+
+## 2026-10-21 Windows 离线评测自检
+
+- 首次 P4 测试 13 passed / 1 failed，fake runner 被数据集指纹校验阻断。两个冻结 JSONL 的 checkout 是 CRLF，index/冻结数据是 LF；恢复 LF 后字节指纹与冻结件相符。新增 .gitattributes 对这两个路径固定 LF，不修改内容或冻结指纹。
+- `python -X utf8 -m pytest tests_bridge/test_p4_eval.py -q`：修复后 **14 passed**。
+- `python -X utf8 eval/runner.py --mode fake`：完成 A/B/C 自检，`safety=PASS`；报告 `eval/results/round1.fake.20261021-222536.json`，`mode=fake`、`verified_gold=0`。模拟生成/语义检查及录制搜索仅证明机制可运行，报告中的答案/引用分数不能作为真实模型质量结论。
+- 本机常用凭证文件不存在，相关 LLM/Tavily 环境 key 未配置；未发起真实云调用、未安装或加载本地模型。正式 live 质量对照待凭证与有效出站授权就绪。
+
+
+## 2026-10-21 dev 改进切片 1
+
+- 实施前六目录：130 passed。当前 Windows base Python 3.12.4；研究服务使用根 .venv（system-site-packages），补已声明 loguru/aiosqlite 后 141 passed，9 条既有弃用警告。
+- `python -X utf8 -m pytest agent/tests tests_bridge/test_p4_eval.py -q`：52 passed（含 7 个新回归，先红后绿）。
+- 控制流语义修正：非法规划拒绝，循环停止原因不被 writer 成功覆盖；无新增真实云调用。
