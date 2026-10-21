@@ -9,11 +9,12 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
-from evidence.registry import SourceRegistry, content_hash
+from evidence.registry import Source, SourceRegistry, content_hash
 from evidence.schema import Evidence, Extraction, Locator, Provenance, Score
 from evidence.store import EvidenceStore, register_with_computed_id
 from tools.base import ToolError, ToolMeta, ToolResult, validate_args
@@ -62,12 +63,27 @@ class SourceFetchTool:
             )
         source = self._registry.get(source_id)
         if source is None:
+            # 搜索产出的已登记 Evidence 是可信的来源身份入口，模型仍不能提交任意 URL。
+            found = next((ev for ev in self._store.all() if ev.source_id == source_id
+                          and ev.source_type in ("web", "paper")), None)
+            if found is not None:
+                p = found.provenance
+                url = p.fulltext_url or p.canonical_url or found.locator.url or ""
+                source = self._registry.register(Source(
+                    id=source_id, type=found.source_type, url=url, hash=p.content_hash,
+                    version=p.arxiv_version or "", metadata={"title": p.title, "arxiv_id": p.arxiv_id,
+                                                              "arxiv_version": p.arxiv_version}))
+        if source is None:
             return ToolResult(
                 call_id=call_id,
                 status="error",
                 error=ToolError("source_not_registered", f"source_id 未登记: {source_id}"),
                 meta=ToolMeta(provider="source_fetch"),
             )
+
+        if source.type == "paper" and "/abs/" in source.url and content_scope == "fulltext":
+            return ToolResult(call_id=call_id, status="error", meta=ToolMeta(provider="source_fetch"),
+                              error=ToolError("fulltext_unavailable", "论文摘要页面不能冒充正文"))
 
         started = time.perf_counter()
         try:
@@ -108,7 +124,7 @@ class SourceFetchTool:
             title=source.metadata.get("title", ""),
             content_hash=content_hash(text),
             canonical_url=source.url,
-            fetched_at=source.metadata.get("fetched_at", ""),
+            fetched_at=datetime.now(timezone.utc).isoformat(),
             arxiv_id=source.metadata.get("arxiv_id"),
             arxiv_version=source.metadata.get("arxiv_version"),
         )

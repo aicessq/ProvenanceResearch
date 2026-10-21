@@ -278,3 +278,10 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 实施前六目录：130 passed。当前 Windows base Python 3.12.4；研究服务使用根 .venv（system-site-packages），补已声明 loguru/aiosqlite 后 141 passed，9 条既有弃用警告。
 - `python -X utf8 -m pytest agent/tests tests_bridge/test_p4_eval.py -q`：52 passed（含 7 个新回归，先红后绿）。
 - 控制流语义修正：非法规划拒绝，循环停止原因不被 writer 成功覆盖；无新增真实云调用。
+
+
+## 2026-10-21 dev 改进切片 2
+
+- `python -X utf8 -m pytest agent/tests tools/tests tests_bridge -q`：84 passed。
+- 根 .venv Python 运行 researcher/deep_research_system/tests/test_agentic_service.py：10 passed（结果追加 gaps，原 HTTP/SSE 生命周期保持）。
+- 新增缺口闭合/失败/身份接线用例均走真实 AgentLoop/ToolExecutor；HTTP 为录制响应，无密钥无外送。未宣称真实质量改善。

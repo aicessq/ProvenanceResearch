@@ -378,6 +378,7 @@ class AgenticTaskService:
             "stop_reason": getattr(answer.stop_reason, "value", str(answer.stop_reason)),
             "budget_report": dict(answer.budget_report),
             "evidence": [dataclasses.asdict(ev) for ev in answer.evidence],
+            "gaps": list(answer.gaps),
         }
         if answer.status == "answered":
             return {

@@ -403,3 +403,11 @@
 - 校验 planner 输出，不再将畸形结果默认为空调用；预算前后检查、轮次耗尽及无进展保留真实停止原因，writer 成功不覆盖。理由：修复假完成信号，为后续缺口闭环提供可靠控制状态。
 - 基线六目录 130 passed。新增 7 个控制流用例先验证全部失败，修改后 agent+P4 为 52 passed；原 no_progress 测试的 sufficient_evidence 断言按本次语义修正。原公开枚举不变。
 - 本机研究服务缺 loguru/aiosqlite；在 gitignored .venv（复用既有依赖）补装清单已声明的 loguru==0.7.3/aiosqlite==0.22.1，不修改应用依赖清单，不安装本地模型。研究服务回归另记实测结果。
+
+
+## 2026-10-21 dev 实施切片 2：显式缺口与证据反馈
+
+- 新增 GapLedger，复用 Citation Gate 验证闭合；条件不可改写、缺口不可删除消失、总数最多 12；planner 输入增加来源身份/范围、尝试与错误、预算，plan/tool_result 承载关联，结果增加向后兼容 gaps。
+- 原因：缺少可验证的研究覆盖状态和错误反馈会导致盲目搜索/假闭合。保留旧 tool_calls-only 格式供历史对照与兼容，不声称该格式具备缺口覆盖证明。
+- source_fetch 从 EvidenceStore 已登记来源衔接 SourceRegistry，避免选对工具却永远 source_not_registered；逐跳获取防护保持。arXiv 摘要 URL 不冒充全文；真实 PDF 文本提取仍需独立已授权链路，不在此假装实现。
+- 对应 agent/tools/bridge 84 passed，研究服务桥 10 passed；本轮无真实云请求。每项机制的目的与边界见 agent-mechanisms.md。

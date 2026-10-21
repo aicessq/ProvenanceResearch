@@ -13,3 +13,16 @@
 **证据**：`agent/tests/test_control_flow.py` 覆盖坏结构、耗尽后作答保留原因、超时前不启动规划；原 loop 无进展断言同步改为检查真实原因，不改变有据作答要求。
 
 后续知识缺口、验证反馈、部分作答与消融接入完成后在本文分别记录，不预标为已完成。
+
+
+## 显式缺口账本与调用反馈
+
+**解决的问题**：规划只能看到短证据摘要，缺少来源范围、已试查询及错误；“搜索了很多次”不等于研究问题已解决。
+
+**加入的机制**：GapLedger 保存最多 12 项 question/required_scope/completion_criterion、支持引用及尝试记录；条件建立后不可改写，删项不能消除未解缺口。请求 resolved 必须让条件作为 claim 经过现有 Citation Gate。规划输入携带 source_id、scope、历史调用/错误和预算；gap_ids→call_id→evidence_ids 形成追踪链，复用 plan/tool_result 事件并在任务结果增加 gaps 字段，公开回答状态不变。
+
+**保留的约束**：账本不是新证据，不能将摘要补写成正文；没有语义支持或范围不足不闭合。旧仅 tool_calls 的规划格式仍可读，供旧消费者/固定对照使用，但不凭空声称具有缺口覆盖度。新提示词明确要求结构化 gaps。
+
+**必要接线**：source_fetch 可从已登记 Evidence 获取来源身份，再走原逐跳获取防护；模型仍只能提供 source_id。获取时间记录实际时间。arXiv 的 /abs/ 页面不能按 fulltext 返回，报 fulltext_unavailable；PDF 正文提取未因此自动完成。
+
+**证据**：test_gaps.py 覆盖缺正文定向读取、摘要不能闭合全文、工具失败反馈、删项/改条件、伪引用/语义不支持、搜索证据到真实 SourceFetchTool 的录制 HTTP 接线。
