@@ -299,3 +299,9 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 
 - `python -X utf8 -m pytest agent/tests -q`：53 passed；包含目标落在原摘要/原 top8 之外的真实 evidence_read 用例。
 - 新流程无证据身份变化；消融明确关闭验证反馈内容，避免实验污染。
+
+
+## 2026-10-21 评测执行接口模块
+
+- `python -X utf8 -m pytest tests_bridge/test_p4_eval.py -q`：14 passed，安全样例额外检查拒答原因。
+- 旧 runner fake A/B/C 跑通，报告 round1.fake.20261021-230051.json；仅机械验证，无质量结论。

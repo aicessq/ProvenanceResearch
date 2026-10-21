@@ -130,26 +130,35 @@ def _mock_http_client():
     return httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
 
 
-def build_executor(mode: str, corpus: CorpusIndex, store: EvidenceStore, index_identity: str) -> ToolExecutor:
+def build_executor(mode: str, corpus: CorpusIndex, store: EvidenceStore, index_identity: str,
+                   *, include_read_tools: bool = False, client=None) -> ToolExecutor:
+    from evidence.registry import SourceRegistry
+    from tools import EvidenceReadTool, SourceFetchTool
+    extra = []
     if mode == "fake":
-        client = _mock_http_client()
+        client = client or _mock_http_client()
+        if include_read_tools:
+            extra = [EvidenceReadTool(store=store),
+                     SourceFetchTool(registry=SourceRegistry(), store=store, client=client)]
         return ToolExecutor(
             tools=[
                 EvalKBSearchTool(corpus, store, index_identity),
                 WebSearchTool(api_key="fake-key", client=client, store=store),
                 ArxivSearchTool(client=client, store=store, sleep=_no_sleep),
-            ]
+            ] + extra
         )
     import os
 
     import httpx
 
+    if include_read_tools:
+        extra = [EvidenceReadTool(store=store), SourceFetchTool(registry=SourceRegistry(), store=store, client=client)]
     return ToolExecutor(
         tools=[
             EvalKBSearchTool(corpus, store, index_identity),
-            WebSearchTool(api_key=(os.environ.get("TAVILY_API_KEY") or "").strip(), store=store),
-            ArxivSearchTool(store=store),
-        ]
+            WebSearchTool(api_key=(os.environ.get("TAVILY_API_KEY") or "").strip(), store=store, client=client),
+            ArxivSearchTool(store=store, client=client),
+        ] + extra
     )
 
 
@@ -250,7 +259,16 @@ def _arxiv_abstract_evidence(store: EvidenceStore):
 async def _safety_run(script: list[str], *, seed_store: EvidenceStore | None = None, budget: Budget | None = None) -> dict:
     """共享脚本 LLM 作 planner+writer（与生产同一对象语义）；闸门步骤 1-3 全真实。"""
     store = seed_store or EvidenceStore()
-    llm = FakeEvalLLM(script)  # 单实例：plan/generate 按调用顺序消费脚本
+    class SafetyLLM(FakeEvalLLM):
+        async def generate(self, messages, metadata=None):
+            if (metadata or {}).get("stage") == "plan" and self._responses:
+                # 新增的修复规划若无专门动作脚本则显式停止，不能把下一条 writer 输出当规划。
+                next_output = json.loads(self._responses[0])
+                if "tool_calls" not in next_output:
+                    self._responses.insert(0, json.dumps({"tool_calls": []}))
+            return await super().generate(messages, metadata)
+
+    llm = SafetyLLM(script)
     loop = AgentLoop(
         planner=llm,
         writer=llm,
@@ -375,7 +393,7 @@ async def run_baseline(freeze: dict, *, mode: str, conditions: list[str], runs: 
     return {"conditions": per_condition, "details": details}
 
 
-def _live_llm():
+def _live_llm(*, client=None):
     import os
 
     from providers.llm.deepseek import DeepSeekLLMProvider
@@ -385,6 +403,8 @@ def _live_llm():
         "api_key": (os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip(),
         "model": (os.environ.get("LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
     }
+    if client is not None:
+        kwargs["client"] = client
     base_url = (os.environ.get("LLM_BASE_URL") or "").strip()
     if base_url:
         kwargs["base_url"] = base_url

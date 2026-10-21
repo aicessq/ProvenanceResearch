@@ -119,6 +119,9 @@ class RunResult:
     usage: dict = field(default_factory=dict)
     cost_unknown: bool = False
     error: str = ""
+    gaps: list[dict] = field(default_factory=list)
+    limitations: list[str] = field(default_factory=list)
+    tool_trace: list[dict] = field(default_factory=list)
 
 
 def _evidence_ref(ev: Any) -> dict:
@@ -157,6 +160,7 @@ async def run_condition(
     executor: Any = None,
     budget: Budget | None = None,
     index_identity: str = "",
+    loop_factory: Any = AgentLoop,
 ) -> RunResult:
     """跑一个条件的一道题。llm 需已包 UsageLLM；checker 为引用闸门语义复检。
 
@@ -187,7 +191,7 @@ async def run_condition(
             planner = llm
 
         gate = CitationGate(semantic_checker=checker)
-        loop = AgentLoop(
+        loop = loop_factory(
             planner=planner,
             writer=llm,
             executor=executor,
@@ -237,6 +241,9 @@ async def run_condition(
             latency_ms=latency_ms,
             usage=usage,
             cost_unknown=cost_unknown,
+            gaps=list(getattr(answer, "gaps", ())),
+            limitations=list(getattr(answer, "limitations", ())),
+            tool_trace=[t for t in answer.trace if t.get("type") in ("tool_call", "tool_result")],
         )
     except Exception as exc:  # noqa: BLE001 —— provider 失败如实记录为 error 运行
         return RunResult(

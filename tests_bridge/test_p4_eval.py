@@ -228,6 +228,8 @@ def test_safety_samples_all_rejected() -> None:
     suite = asyncio.run(run_safety_suite())
     assert suite["passed"], suite["samples"]
     assert all(s["status"] == "refused" for s in suite["samples"])
+    assert all(s["refusal_reason"] == "citation_gate_failed" for s in suite["samples"]
+               if s["name"] in ("no_registered_citation", "forged_citation", "abstract_as_fulltext"))
     over_budget = next(s for s in suite["samples"] if s["name"] == "over_budget_calls")
     assert over_budget["tool_calls"] <= 1  # 超预算续调被阻止且计费封顶
 

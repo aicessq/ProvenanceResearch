@@ -427,3 +427,9 @@
 - 实际读取结果补最多 4000 字上下文，优先放入 writer 的 8 条证据窗口；只有登记证据可进入，原 RRF 指标排序不变。理由：此前 evidence_read 的结果被 200 字摘要及旧 top8 再次截掉，无法实现计划中的定向补读。
 - verification_feedback=False 同时关闭失败反馈内容，不仅关闭额外工具调用；理由：gap-only 消融不能偷偷获得反馈提示。模块单独提交，不与评测代码混在一起。
 - 真实读工具回归先红后绿，agent/tests 53 passed；公开状态与云配置均未改。
+
+
+## 2026-10-21 评测执行接口模块
+
+- run_condition 接受可注入 loop_factory，并保存 gaps/limitations/工具轨迹，默认仍运行现有 AgentLoop，A/B/C 含义不变。工具构建器可显式加入 fetch/read，并支持注入受上下文管理的 HTTP client；理由：对照需要共用真实流水线而非复制业务实现。
+- 安全 fixture 为额外修复规划提供有效停止输出，不能因脚本耗尽的格式错误而假通过；增加断言确保伪引用/摘要越权确因引用闸门拒绝。P4 14 passed，旧 A/B/C fake runner 完整跑通，safety=PASS。该模块独立提交。
