@@ -339,3 +339,13 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 最终离线对照：agent-improvement.fake.20261021-231729.json，报告代码版本 badeeae32036bc5ed7cd5e0823db6af82ebfb94c，生成时 working_tree_dirty=false；源码指纹与最终代码逐项匹配。三组各 54 次、合计 162 次，0 error，各组安全样例 5/5 通过；not_a_conclusion=true，不是质量结论。
 - 实际运行 live 入口就绪检查：启动前明确报缺 LLM_API_KEY/DEEPSEEK_API_KEY 并退出，未发出云请求。真实云质量对照、人工金标准核验、完整 P4 验收仍待外部条件；不进入 Supervisor。
 - 修复后 Standards/Spec 两轴均复核通过；审查原始发现与逐项验收见 agent-implementation-review.md。知识引擎代码未变，未重跑依赖本地历史推理环境的 KE 测试；不宣称 KE 全云迁移或真实入库集成通过。
+
+
+## 2026-10-26 Agnes 配置与运行
+
+- 六目录回归：163 passed。研究服务全量：149 passed、9 条既有警告。
+- 最终补充非 DeepSeek 缺模型/端点不得使用 DeepSeek 默认地址后，providers/tests + test_agentic_service.py + test_endpoint_guard.py：75 passed、3 条既有警告。覆盖精确主机、协议、端口、跨供应商绑定、Agnes 身份、旧网关头隔离及缺配置失败。
+- 前端 npm run build 成功，43 modules。五项真实云合成服务检查均成功，OCR/Vision 均转录 HELLO 2026。前端、后端文档、代理后的配置/任务列表均 200，三项基础设施 healthy。
+- 两个真实任务完成生命周期但拒答：citation_gate_failed（摘要被模型声明为全文），invalid_planner_output/no_progress。保留失败记录，不把连接成功称为质量通过；未运行正式 P4 对照，完整 KE 集成仍未验收。重启方法和边界见 windows-local-run.md。
+
+- Windows 契约检查首次未启用 UTF-8，读取中文 git 输出触发 GBK 解码异常；按本机既有命令加 `-X utf8` 后仓库契约通过，不修改业务代码规避环境问题。

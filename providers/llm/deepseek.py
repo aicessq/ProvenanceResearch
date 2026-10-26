@@ -33,7 +33,9 @@ class DeepSeekLLMProvider:
         retry_delay_seconds: float = 1.0,
         client: httpx.AsyncClient | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        provider_name: str = "deepseek",
     ) -> None:
+        self.provider_name = provider_name
         self._api_key = (api_key or "").strip()
         self._model = model
         self._base_url = (base_url or "").strip().rstrip("/")
@@ -75,13 +77,13 @@ class DeepSeekLLMProvider:
             except httpx.TimeoutException as exc:
                 last_error = ProviderError(
                     ProviderErrorCode.TIMEOUT,
-                    f"DeepSeek 调用超时（{self._timeout_seconds}s）",
+                    f"{self.provider_name} 调用超时（{self._timeout_seconds}s）",
                     provider=self.provider_name,
                 )
             except httpx.TransportError as exc:
                 last_error = ProviderError(
                     ProviderErrorCode.SERVER_ERROR,
-                    f"DeepSeek 传输失败: {exc}",
+                    f"{self.provider_name} 传输失败: {exc}",
                     provider=self.provider_name,
                 )
             else:
@@ -89,7 +91,7 @@ class DeepSeekLLMProvider:
                     return self._parse(resp)
                 last_error = ProviderError(
                     classify_http_status(resp.status_code),
-                    f"DeepSeek HTTP {resp.status_code}: {resp.text[:200]}",
+                    f"{self.provider_name} HTTP {resp.status_code}: {resp.text[:200]}",
                     provider=self.provider_name,
                 )
 
@@ -103,13 +105,13 @@ class DeepSeekLLMProvider:
         if not self._api_key or not self._base_url:
             raise ProviderError(
                 ProviderErrorCode.CONFIG_MISSING,
-                "DeepSeek api_key/base_url 未配置，拒绝发起调用",
+                f"{self.provider_name} api_key/base_url 未配置，拒绝发起调用",
                 provider=self.provider_name,
             )
         if not self._base_url.startswith("https://"):
             raise ProviderError(
                 ProviderErrorCode.CONFIG_MISSING,
-                f"DeepSeek base_url 必须是 https: {self._base_url}",
+                f"{self.provider_name} base_url 必须是 https: {self._base_url}",
                 provider=self.provider_name,
             )
 
@@ -123,7 +125,7 @@ class DeepSeekLLMProvider:
         except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise ProviderError(
                 ProviderErrorCode.INVALID_RESPONSE,
-                f"DeepSeek 响应结构非法: {exc}",
+                f"{self.provider_name} 响应结构非法: {exc}",
                 provider=self.provider_name,
             ) from exc
         return LLMResult(

@@ -13,6 +13,8 @@ from app.core.errors import EndpointNotAllowedError
 
 # provider → 允许的官方主机名（精确匹配，不做后缀通配）
 ALLOWED_PROVIDER_HOSTS: dict[str, tuple[str, ...]] = {
+    "agnes": ("api.agnes-ai.cn",),
+    "baidu": ("aip.baidubce.com",),
     "deepseek": ("api.deepseek.com",),
     "zhipu": ("open.bigmodel.cn",),
     "kimi": ("api.moonshot.cn",),

@@ -209,3 +209,21 @@ def test_key_only_sent_to_bound_host() -> None:
     provider = _provider(handler)
     asyncio.run(provider.generate(MESSAGES))
     assert all(u.startswith("https://api.deepseek.com/") for u in seen)
+
+
+def test_compatible_vendor_identity_and_token_accounting():
+    async def check():
+        def handler(request):
+            assert str(request.url) == "https://api.agnes-ai.cn/v1/chat/completions"
+            assert "x-opencode-session" not in request.headers
+            body = _ok_body("OK")
+            body["model"] = "agnes-3.0-flash"
+            return httpx.Response(200, json=body)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            provider = DeepSeekLLMProvider(api_key="synthetic-key", model="agnes-3.0-flash",
+                base_url="https://api.agnes-ai.cn/v1", provider_name="agnes", client=client)
+            result = await provider.generate(MESSAGES)
+            assert result.provider == "agnes"
+            assert result.model == "agnes-3.0-flash"
+            assert result.prompt_tokens + result.completion_tokens == 4
+    asyncio.run(check())

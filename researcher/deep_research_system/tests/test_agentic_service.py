@@ -456,3 +456,44 @@ class FakeStoreHolder:
         from evidence.store import EvidenceStore
 
         self.store = EvidenceStore()
+
+
+def test_cloud_runtime_agnes_identity_and_gateway_headers(monkeypatch):
+    from app.services.agentic_service import build_cloud_runtime
+    import app.services.cloud_config_service as config_module
+
+    class Config:
+        def resolve(self, capability):
+            return {"provider": "agnes", "model": "agnes-3.0-flash",
+                    "api_key": "synthetic-key", "base_url": "https://api.agnes-ai.cn/v1"}
+        def check_outbound(self, capability):
+            return True, "approved"
+
+    monkeypatch.setattr(config_module, "CloudConfigService", Config)
+
+    async def check():
+        runtime = build_cloud_runtime()
+        try:
+            assert runtime.llm.provider_name == "agnes"
+            assert runtime.llm._base_url == "https://api.agnes-ai.cn/v1"
+            assert "x-opencode-session" not in runtime.llm._extra_headers
+        finally:
+            await runtime.llm.close()
+            for tool in runtime.executor._tools.values():
+                client = getattr(tool, "_client", None)
+                if client is not None:
+                    await client.aclose()
+    asyncio.run(check())
+
+
+def test_agnes_missing_endpoint_cannot_use_deepseek_default(monkeypatch):
+    import pytest
+    import app.services.cloud_config_service as config_module
+    from app.services.agentic_service import build_cloud_runtime
+
+    class Config:
+        def resolve(self, capability):
+            return {"provider": "agnes", "model": "agnes-3.0-flash", "api_key": "synthetic-key", "base_url": ""}
+    monkeypatch.setattr(config_module, "CloudConfigService", Config)
+    with pytest.raises(AgenticConfigError, match="LLM_BASE_URL"):
+        build_cloud_runtime()

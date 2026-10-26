@@ -68,7 +68,7 @@ RuntimeFactory = Callable[[], AgenticRuntime]
 
 
 def build_cloud_runtime() -> AgenticRuntime:
-    """生产运行时：DeepSeek（providers 适配层）+ 五工具。缺配置抛 AgenticConfigError。"""
+    """生产运行时：已配置的兼容云模型（providers 适配层）+ 五工具。缺配置抛 AgenticConfigError。"""
     from evidence.registry import SourceRegistry
     from evidence.store import EvidenceStore
     from providers.llm.deepseek import DeepSeekLLMProvider
@@ -93,6 +93,9 @@ def build_cloud_runtime() -> AgenticRuntime:
             "LLM_API_KEY/DEEPSEEK_API_KEY 未配置；生产路径不使用本地/模拟模型，任务显式失败",
         )
 
+    if cfg.get("provider") not in (None, "", "deepseek") and not (cfg.get("base_url") and cfg.get("model")):
+        raise AgenticConfigError("config_missing", "兼容云模型必须明确配置 LLM_BASE_URL 和 LLM_MODEL，拒绝使用其他供应商默认值")
+
     # 出站门（design.md §9）：凭证不等于授权——LLM/搜索外送问题与证据前逐能力检查；
     # 总开关关闭或未授权 → 显式失败，绝不"先跑起来再说"
     for capability in ("llm", "search:web", "search:arxiv"):
@@ -104,15 +107,19 @@ def build_cloud_runtime() -> AgenticRuntime:
             )
     llm_kwargs: dict = {
         "api_key": api_key,
+        "provider_name": cfg.get("provider") or "deepseek",
         "model": (cfg.get("model") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
     }
     if cfg.get("base_url"):
-        llm_kwargs["base_url"] = cfg["base_url"].strip()
+        from app.model_pool.endpoint_guard import validate_model_endpoint
+
+        llm_kwargs["base_url"] = validate_model_endpoint(cfg.get("provider") or "deepseek", cfg["base_url"])
     # 网关端点要求 x-opencode-session 稳定会话 ID（路由/缓存用，不承载凭证）
     from uuid import uuid4
 
     session_id = (os.environ.get("LLM_SESSION_ID") or "").strip()
-    llm_kwargs["extra_headers"] = {"x-opencode-session": session_id or f"runtime-{uuid4().hex}"}
+    if cfg.get("provider") == "opencode":
+        llm_kwargs["extra_headers"] = {"x-opencode-session": session_id or f"runtime-{uuid4().hex}"}
     llm = DeepSeekLLMProvider(**llm_kwargs)
     store = EvidenceStore()
     registry = SourceRegistry()

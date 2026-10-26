@@ -100,3 +100,22 @@ def test_models_test_route_rejects_before_any_outbound(monkeypatch) -> None:
         )
         assert resp.status_code == 400
         assert resp.json()["code"] == "ENDPOINT_NOT_ALLOWED"
+
+
+@pytest.mark.parametrize("provider,url", [
+    ("agnes", "https://api.agnes-ai.cn/v1"),
+    ("baidu", "https://aip.baidubce.com"),
+])
+def test_user_configured_cloud_hosts(provider, url):
+    assert validate_model_endpoint(provider, url) == url
+
+
+@pytest.mark.parametrize("url", [
+    "https://api.agnes-ai.cn.evil.example/v1",
+    "https://api.agnes-ai.cn:8443/v1",
+    "http://api.agnes-ai.cn/v1",
+    "https://api.deepseek.com/v1",
+])
+def test_agnes_host_is_exact_and_provider_bound(url):
+    with pytest.raises(EndpointNotAllowedError):
+        validate_model_endpoint("agnes", url)
