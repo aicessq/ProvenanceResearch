@@ -361,3 +361,8 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 用户处理本机安全软件后，按 HEAD 恢复原 safety_guard.py（没有源码 diff），KE 完整单元回归：100 passed、34 deselected。配置回归最终 12 passed（含缺路径）；仓库契约通过。之前的文件读取环境阻断已解除。
 - 官方 BGE 权重下载过程中连接中断，使用同一官方源与固定 revision 续传完成，权重 437955512 bytes；生产加载完全离线。真实本地模型生成三个 768 维有限值向量，相关/不相关余弦分别约 0.902 / 0.301；该合成检查不构成质量评测。
 - 知识库 /health 200，/api/v1/health/ready 为 ok，PostgreSQL/Redis/Qdrant/Worker 全部正常。研究服务重启后，经统一前端代理的配置显示本地 embedding 已配置。
+
+- 真实入库任务 completed，产生 parent/child 各一个；英文查询因既有 note 类型推断首次空召回，显式 standard 后命中。随后实际工具调用暴露索引身份丢失；新增回归先红后绿，补齐身份传递和不一致拒绝。
+- 最终核心六目录：164 passed；KE 完整单元回归：101 passed、34 deselected。真实 HTTP + KBSearchTool 验证 PASS：一个 vector chunk、一个 K 前缀引用。记录在忽略的 .env.run/local-kb-smoke.json。没有执行正式 P4 对照，不宣称大规模或中文召回质量。
+
+- 收尾新增缺失/混合身份不得注册部分证据的回归，工具层 25 passed；最终六目录 165 passed。拆分后的 API 身份 schema 回归独立执行 1 passed；仓库契约及 diff 检查通过。

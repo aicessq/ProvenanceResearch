@@ -496,3 +496,10 @@
 - 原缓存只有元数据、没有 BGE 权重；从官方 Hugging Face 仓库补齐 revision a5beb1e3e68b9ab74eb54cfd186867f64f240e1a，使用忽略目录 knowledge_engine/models/bge-base-en-v1.5。配置为 768 维、新 collection bge_base_en_v15_768_a5beb1e3，不复用不同维度的既有索引；生产加载指定 local_files_only=True、trust_remote_code=False，缺文件或维度不符仍显式失败，不启用确定性测试编码器。
 - 检索器原先无条件加载 reranker；新增并遵守 RERANKER_ENABLED，默认关闭，避免仅授权本地 embedding 时附带加载另一套模型。显式注入的测试/调用服务保持既有行为。配置视图对明确配置本地路径的 embedding 不再要求云 API key；其他能力规则保持。
 - 仅执行仓库已有的两步 Alembic 升级到本机原先空的 research_agent 库；保持 SQLAlchemy 连接池及现有表结构定义，不新写 schema。知识库与 Worker 的本机启动脚本位于忽略目录，研究服务 KB 地址配置到回环端口 8001。
+
+
+## 2026-10-26 本地知识库到 Agent 的索引身份接线
+
+- 真实入库成功，Qdrant payload 含模型身份，但检索响应 schema 丢失身份、KBSearchTool 只取构造时身份，导致默认运行时证据注册失败。补 API index_identity 字段，由已验证的服务或命中 metadata 传出；工具传给 Provenance 和 ToolMeta。理由：本地 Embedding 必须实际形成可引用证据。
+- 保留旧调用方显式绑定身份；响应缺身份且无绑定时返回 invalid_response，绑定与响应不一致或混合身份时返回 index_identity_mismatch。不发明身份，不放宽证据校验。回归先红后绿，真实 HTTP 与 KB 工具桥接均通过。
+- 英文合成问题被现有 intent 规则归入 note，而文档为 standard，导致首次空召回；显式指定文档类型后命中。保留此现有行为并记录，不在本轮修改意图规则或宣称通用英文召回验收。

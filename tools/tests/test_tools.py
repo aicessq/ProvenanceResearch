@@ -332,3 +332,29 @@ def test_executor_rejects_unknown_args() -> None:
     executor = ToolExecutor(tools=[tool])
     result = asyncio.run(executor.execute("web_search", query="q", evil_arg="x"))
     assert result.error.code == "invalid_params"
+
+
+def test_kb_search_preserves_server_index_identity_and_rejects_mismatch():
+    payload = {"chunks": [{"chunk_id": "chunk-1", "score": 0.8, "chunk_text": "Access review every ninety days.",
+        "document_id": "doc-1", "version_id": "v1", "doc_title": "Policy", "index_identity": "bge:768:revision"}]}
+    for pinned in ("", "bge:768:revision", "other-index"):
+        tool = KBSearchTool(base_url="http://kb.internal",index_identity=pinned,
+            client=_client(lambda req: httpx.Response(200,json=payload)))
+        result = asyncio.run(tool.execute("c-local",query="Access review"))
+        if pinned == "other-index":
+            assert result.status == "error" and result.error.code == "index_identity_mismatch"
+        else:
+            assert result.status == "ok"
+            assert result.evidence[0].provenance.index_identity == "bge:768:revision"
+            assert result.meta.index_identity == "bge:768:revision"
+
+
+def test_kb_search_missing_or_mixed_identity_fails_without_registering_evidence():
+    item = {"chunk_id":"c1","document_id":"d1","version_id":"v1","chunk_text":"policy"}
+    for chunks, code in [([item],"invalid_response"),
+        ([{**item,"index_identity":"old"},{**item,"chunk_id":"c2","index_identity":"new"}],"index_identity_mismatch")]:
+        tool=KBSearchTool(base_url="http://kb.internal",client=_client(lambda req:httpx.Response(200,json={"chunks":chunks})))
+        result=asyncio.run(tool.execute("identity-check",query="policy"))
+        assert result.status=="error" and result.error.code==code
+        assert result.evidence==[]
+        assert tool.store.all()==[]

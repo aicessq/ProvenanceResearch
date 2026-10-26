@@ -68,7 +68,7 @@ def retrieve_chunks(
     return QueryRetrieveResponse(
         query=request.query,
         top_k=result.top_k,
-        chunks=[_to_chunk_result(item) for item in result.final_results],
+        chunks=[_to_chunk_result(item, index_identity=getattr(getattr(retriever, "embedding_service", None), "identity", "")) for item in result.final_results],
         debug=(
             QueryRetrieveDebug(
                 vector_results=[_to_chunk_result(item) for item in result.debug.vector_results],
@@ -273,10 +273,11 @@ def _internal_error(message: str, reason: str) -> HTTPException:
     )
 
 
-def _to_chunk_result(item) -> QueryChunkResult:
+def _to_chunk_result(item, *, index_identity: str = "") -> QueryChunkResult:
     """把服务层结果映射为 API schema。"""
     return QueryChunkResult(
         chunk_id=item.chunk_id,
+        index_identity=str(getattr(item, "metadata", {}).get("embedding_identity") or index_identity),
         score=item.score,
         source=item.source,
         chunk_text=item.chunk_text,

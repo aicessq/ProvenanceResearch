@@ -58,3 +58,7 @@ npm.cmd run dev -- --host 127.0.0.1
 知识库启动和全量测试曾被 app/services/safety_guard.py 读取时反复消失阻断。用户处理本机安全软件后，按 HEAD 恢复原文件，KE 全量单元测试通过（100 passed / 34 deselected），文件本身与业务安全逻辑没有修改。独立 Embedding 验证与完整知识库验收分别记录，不将配置存在当作全链路通过。
 
 本地向量真实冒烟已通过：三个输入均生成 768 维有限值向量；相关文本余弦相似度约 0.902，无关文本约 0.301。该小样例只证明真实模型正常推理，不代表正式召回质量评测。API 就绪检查中 PostgreSQL、Redis、Qdrant、一个已注册所需任务的 Worker 均正常。记录位于忽略的 .env.run/local-embedding-model.json 和 local-embedding-smoke.json。
+
+最终真实链路验证：合成英文文档上传、Worker 解析切分、本地 BGE 向量、Qdrant、HTTP 检索、Agent KB 工具注册证据全部通过。记录为 .env.run/local-kb-smoke.json；检索指定 doc_type=standard，现有规则会把未识别英文问题默认限定为 note。留有一份题为 Synthetic local embedding smoke 的合成文档供复查。
+
+知识库 API：http://127.0.0.1:8001/docs。独立终端启动 API：`.venv/Scripts/python.exe -X utf8 .env.run/knowledge.py api`；启动 Worker：`.venv/Scripts/python.exe -X utf8 .env.run/knowledge.py worker`。然后启动研究后端和前端。Worker 使用 Windows solo 模式，不启动历史 Docker worker；权重只在本机忽略目录，不在容器或 Git 中。

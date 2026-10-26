@@ -50,6 +50,7 @@ class QueryChunkResult(BaseModel):
     """单条 chunk 检索结果。"""
 
     chunk_id: str
+    index_identity: str = ""
     score: float
     source: str
     chunk_text: str

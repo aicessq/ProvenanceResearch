@@ -84,6 +84,12 @@ class KBSearchTool:
             )
 
         chunks = payload.get("chunks") or []
+        identities = {str(item.get("index_identity") or self._index_identity) for item in chunks}
+        if chunks and "" in identities:
+            return ToolResult(call_id=call_id, status="error", error=_err("invalid_response", "KB 缺少索引身份"))
+        if len(identities) > 1 or (identities and self._index_identity and identities != {self._index_identity}):
+            return ToolResult(call_id=call_id, status="error", error=_err("index_identity_mismatch", "KB 索引身份与配置不一致"))
+        index_identity = next(iter(identities), self._index_identity)
         evidence: list[Evidence] = []
         for item in chunks:
             text = str(item.get("chunk_text") or "")
@@ -95,7 +101,7 @@ class KBSearchTool:
                 doc_title=str(item.get("doc_title") or ""),
                 doc_version=str(item.get("version_id") or ""),
                 chunk_id=str(item.get("chunk_id") or ""),
-                index_identity=self._index_identity,
+                index_identity=index_identity,
             )
             locator = Locator(
                 page=item.get("page_start"),
@@ -120,7 +126,7 @@ class KBSearchTool:
         meta = ToolMeta(
             provider="knowledge_engine",
             latency_ms=round(latency, 2),
-            index_identity=self._index_identity,
+            index_identity=index_identity,
             usage={"chunks_returned": len(evidence)},
             coverage=f"mode={mode},top_k={top_k}",
         )
