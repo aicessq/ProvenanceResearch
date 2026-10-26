@@ -68,7 +68,7 @@ def test_resume_rejects_dirty_source_and_model_drift():
     from eval.local_kb import validate_run_identity
     with pytest.raises(ValueError, match="Commit"):
         validate_run_identity({"working_tree_dirty": True}, {})
-    meta = {"working_tree_dirty": False, "dataset_sha256": "a", "freeze_sha256": "b", "git_revision": "c", "llm": {"model": "one"}, "embedding": {}, "chunks_sha256": "d", "bindings_sha256": "e", "qdrant_payload_sha256": "f"}
+    meta = {"working_tree_dirty": False, "dataset_sha256": "a", "freeze_sha256": "b", "git_revision": "c", "llm": {"model": "one"}, "embedding": {}, "chunks_sha256": "d", "bindings_sha256": "e", "qdrant_payload_sha256": "f", "config": {}}
     with pytest.raises(ValueError, match="resume"):
         validate_run_identity(meta, {**meta, "llm": {"model": "other"}})
 
@@ -85,7 +85,7 @@ def test_tool_error_then_provider_exception_keeps_trace_and_budget():
     import asyncio
     from agent.budget import Budget
     from evidence.store import EvidenceStore
-    from eval.local_kb import RecordingExecutor, finalize_result
+    from eval.local_kb import RecordingExecutor, finalize_result, PacedLLM, CallPacer
     from eval.pipelines import UsageLLM, run_condition
     from providers.llm.base import LLMResult
     from tools import ToolExecutor
@@ -104,7 +104,7 @@ def test_tool_error_then_provider_exception_keeps_trace_and_budget():
             raise RuntimeError("provider failed")
     budget = Budget()
     executor = RecordingExecutor(ToolExecutor(tools=[BrokenTool()]))
-    result = asyncio.run(run_condition("C", {"id":"q", "question":"policy"}, llm=UsageLLM(FailingAfterPlan()), checker=None,
+    result = asyncio.run(run_condition("C", {"id":"q", "question":"policy"}, llm=PacedLLM(FailingAfterPlan(), CallPacer(0)), checker=None,
                                       corpus=None, store=EvidenceStore(), executor=executor, budget=budget))
     finalize_result(result, budget, executor)
     assert result.status == "error"
@@ -122,3 +122,87 @@ def test_frozen_dataset_is_complete_and_does_not_claim_human_gold():
     assert sum(q["expected"] == "answered" for q in questions) == 48
     assert all(not q["human_verified"] for q in questions)
     assert all(q["facts"] for q in questions if q["expected"] == "answered")
+
+
+def test_paced_profile_has_fixed_strata_and_original_is_unchanged():
+    from collections import Counter
+    from eval.local_kb import apply_paced_profile, agent_questions
+    config, questions = read_dataset()
+    paced = apply_paced_profile(config, questions)
+    selected = agent_questions(paced, questions)
+    assert len(selected) == 24
+    assert Counter((q["language"], q["category"]) for q in selected) == {
+        ("en", "single"): 8, ("en", "multi_source"): 4,
+        ("zh", "single"): 4, ("zh", "multi_source"): 4,
+        ("zh", "insufficient"): 4,
+    }
+    assert paced["concurrency"] == 1
+    assert paced["llm_min_interval_seconds"] == 15
+    assert paced["budget"]["deadline_seconds"] == 600
+    assert config["budget"]["deadline_seconds"] == 120
+    assert len(agent_questions(config, questions)) == 60
+
+
+def test_global_pacer_spaces_attempts_including_failed_attempts():
+    import asyncio
+    from eval.local_kb import CallPacer
+    now = [0.0]
+    waits = []
+    async def sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+    pacer = CallPacer(15, clock=lambda: now[0], sleep=sleep)
+    async def exercise():
+        await pacer.wait()
+        now[0] += 2
+        await pacer.wait()
+        now[0] += 20
+        await pacer.wait()
+    asyncio.run(exercise())
+    assert waits == [13]
+
+
+def test_paced_summary_uses_selected_denominators(tmp_path):
+    from eval.local_kb import apply_paced_profile, summarize
+    config, questions = read_dataset()
+    summary = summarize(tmp_path, apply_paced_profile(config, questions), questions)
+    assert summary["expected_agent_rows"] == 48
+    assert summary["agents"]["current"]["expected_positive"] == 20
+    assert summary["agents"]["current"]["expected_negative"] == 4
+    assert summary["agents"]["current"]["positive_answer_rate"] == 0
+    assert not summary["complete"]
+
+
+def test_cancellation_during_pacing_does_not_count_cloud_attempt():
+    import asyncio
+    from eval.local_kb import PacedLLM
+    from eval.pipelines import UsageLLM
+    class NeverDispatched:
+        async def generate(self, messages, metadata=None):
+            raise AssertionError("must not dispatch")
+    class WaitingPacer:
+        async def wait(self):
+            raise asyncio.CancelledError()
+    usage = PacedLLM(NeverDispatched(), WaitingPacer())
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(usage.generate([]))
+    assert usage.calls == 0
+    assert usage.reported_usage
+
+
+def test_paced_real_runner_preserves_known_usage_on_normal_return():
+    import asyncio
+    from agent.budget import Budget
+    from evidence.store import EvidenceStore
+    from eval.local_kb import PacedLLM, CallPacer
+    from eval.pipelines import run_condition
+    from providers.llm.base import LLMResult
+    from tools import ToolExecutor
+    class Stop:
+        async def generate(self, messages, metadata=None):
+            return LLMResult(text='{"tool_calls":[]}', provider="fixture", model="fixture", prompt_tokens=5, completion_tokens=3)
+    result = asyncio.run(run_condition("C", {"id":"q", "question":"policy"},
+        llm=PacedLLM(Stop(), CallPacer(0)), checker=None, corpus=None, store=EvidenceStore(),
+        executor=ToolExecutor(tools=[]), budget=Budget()))
+    assert result.usage == {"prompt_tokens": 5, "completion_tokens": 3, "llm_calls": 1}
+    assert not result.cost_unknown

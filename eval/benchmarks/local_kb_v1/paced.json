@@ -1,0 +1,63 @@
+{
+  "version": "local-kb-v1-paced-20261026",
+  "selection_seed": "local-kb-v1-paced-20261026",
+  "selection_rule": "Within each preregistered language/category stratum sort SHA256(seed + colon + id), take first n; independent of observed outcomes.",
+  "agent_question_ids": [
+    "en-001",
+    "en-013",
+    "en-002",
+    "en-014",
+    "en-018",
+    "en-019",
+    "en-020",
+    "en-016",
+    "en-032",
+    "en-027",
+    "en-031",
+    "en-028",
+    "zh-008",
+    "zh-004",
+    "zh-002",
+    "zh-007",
+    "zh-017",
+    "zh-016",
+    "zh-020",
+    "zh-019",
+    "negative-050",
+    "negative-044",
+    "negative-041",
+    "negative-040"
+  ],
+  "strata": [
+    [
+      "en",
+      "single",
+      8
+    ],
+    [
+      "en",
+      "multi_source",
+      4
+    ],
+    [
+      "zh",
+      "single",
+      4
+    ],
+    [
+      "zh",
+      "multi_source",
+      4
+    ],
+    [
+      "zh",
+      "insufficient",
+      4
+    ]
+  ],
+  "concurrency": 1,
+  "llm_min_interval_seconds": 15,
+  "deadline_seconds": 600,
+  "retries": 0,
+  "reason": "User chose existing rate-limited key; supplemental paired sample, separate from full first run. Both variants share all conditions. Agent algorithms unchanged."
+}

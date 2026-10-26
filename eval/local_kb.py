@@ -19,8 +19,43 @@ import time
 
 import httpx
 
+from eval.pipelines import UsageLLM
 from eval.local_kb_metrics import bootstrap_mean, generation_scores, latency_summary, retrieval_scores, summarize_retrieval
 from eval.local_kb_setup import BASE_URL, COLLECTION, DATABASE, ROOT, STATE, audit, environment, read_dataset, save_json
+
+
+def apply_paced_profile(config, questions):
+    profile = json.loads((ROOT / "eval/benchmarks/local_kb_v1/paced.json").read_text(encoding="utf-8"))
+    selected = []
+    for language, category, count in profile["strata"]:
+        group = sorted((q for q in questions if q["language"] == language and q["category"] == category),
+                       key=lambda q: hashlib.sha256((profile["selection_seed"] + ":" + q["id"]).encode()).hexdigest())
+        selected.extend(q["id"] for q in group[:count])
+    if selected != profile["agent_question_ids"] or len(set(selected)) != 24:
+        raise ValueError("Frozen paced selection does not match deterministic strata")
+    return {**config, "paced_profile": profile, "agent_question_ids": selected,
+            "concurrency": profile["concurrency"], "llm_min_interval_seconds": profile["llm_min_interval_seconds"],
+            "budget": {**config["budget"], "deadline_seconds": profile["deadline_seconds"]}}
+
+
+def agent_questions(config, questions):
+    ids = config.get("agent_question_ids")
+    return [q for q in questions if ids is None or q["id"] in ids]
+
+
+class CallPacer:
+    """One shared start-time interval across both variants, including failed attempts."""
+    def __init__(self, interval, *, clock=time.monotonic, sleep=asyncio.sleep):
+        self.interval, self.clock, self.sleep = interval, clock, sleep
+        self.next_start = 0.0
+        self.lock = asyncio.Lock()
+
+    async def wait(self):
+        async with self.lock:
+            delay = self.next_start - self.clock()
+            if delay > 0:
+                await self.sleep(delay)
+            self.next_start = self.clock() + self.interval
 
 
 def append(path, row):
@@ -43,7 +78,7 @@ def validate_run_identity(meta, previous=None):
     if meta["working_tree_dirty"]:
         raise ValueError("Commit the measured code before every formal execution, including resume")
     if previous is not None:
-        for key in ("dataset_sha256", "freeze_sha256", "git_revision", "llm", "embedding", "chunks_sha256", "bindings_sha256", "qdrant_payload_sha256"):
+        for key in ("dataset_sha256", "freeze_sha256", "git_revision", "llm", "embedding", "chunks_sha256", "bindings_sha256", "qdrant_payload_sha256", "config"):
             if previous[key] != meta[key]:
                 raise ValueError("Cannot resume a run after frozen data, model or code changes")
 
@@ -69,7 +104,7 @@ def metadata(config):
         "hardware": {"platform": platform.platform(), "processor": platform.processor(), "logical_cores": os.cpu_count(), "embedding_device": "cpu"},
         "python": sys.version, "config": config, "human_verified": 0,
         "currency_cost_unknown": True, "currency_cost": None,
-        "latency_policy": "warmed sequential mixed retrieval HTTP; AgentLoop execution under concurrency=3, excluding queue wait and runtime construction",
+        "latency_policy": f"warmed sequential mixed retrieval HTTP; AgentLoop execution under concurrency={config['concurrency']}, includes cloud pacing, excludes task queue and runtime construction",
     }
 
 
@@ -122,6 +157,17 @@ class CorpusKBTool:
         # Same whole-corpus scope for every question; no gold document/title filters.
         kwargs["doc_type"] = ["law", "standard"]
         return await self.inner.execute(call_id, **kwargs)
+
+
+class PacedLLM(UsageLLM):
+    """Pace before counting dispatch, preserving the shared runner usage contract."""
+    def __init__(self, inner, pacer):
+        super().__init__(inner)
+        self.pacer = pacer
+
+    async def generate(self, messages, metadata=None):
+        await self.pacer.wait()
+        return await super().generate(messages, metadata)
 
 
 class CappedLLM:
@@ -189,6 +235,7 @@ async def agents(config, questions, bindings, output):
     existing = {(r["question_id"], r["variant"]) for r in read_rows(path)}
     semaphore = asyncio.Semaphore(config["concurrency"])
     completed = len(existing)
+    pacer = CallPacer(config.get("llm_min_interval_seconds", 0))
 
     async def one(question, variant):
         nonlocal completed
@@ -199,7 +246,7 @@ async def agents(config, questions, bindings, output):
             budget = Budget(**config["budget"])
             provider = DeepSeekLLMProvider(api_key=cfg["api_key"], model=cfg["model"], base_url=endpoint,
                                           provider_name=cfg["provider"], timeout_seconds=30, max_retries=0)
-            llm = UsageLLM(CappedLLM(provider, budget, config))
+            llm = PacedLLM(CappedLLM(provider, budget, config), pacer)
             kb = KBSearchTool(base_url=BASE_URL, store=store)
             executor = RecordingExecutor(ToolExecutor(tools=[CorpusKBTool(kb), EvidenceReadTool(store=store)]))
             # Scoring fields never enter a model prompt.
@@ -240,7 +287,10 @@ def summarize(output, config, questions):
     retrieval_rows = read_rows(output / "retrieval.jsonl")
     agent_rows = read_rows(output / "agents.jsonl")
     retrieval_keys = {(q["id"], i, c) for q in questions for i in range(config["retrieval_repeats"]) for c in ("keyword", "vector", "hybrid")}
-    agent_keys = {(q["id"], v) for q in questions for v in config["agent_variants"]}
+    selected_questions = agent_questions(config, questions)
+    positive_count = sum(q["expected"] == "answered" for q in selected_questions)
+    negative_count = len(selected_questions) - positive_count
+    agent_keys = {(q["id"], v) for q in selected_questions for v in config["agent_variants"]}
     actual_agents = [(r["question_id"], r["variant"]) for r in agent_rows]
     if len(actual_agents) != len(set(actual_agents)):
         raise ValueError("Duplicate Agent run")
@@ -249,7 +299,7 @@ def summarize(output, config, questions):
         raise ValueError("Unexpected benchmark run key")
     summary = {"retrieval": summarize_retrieval(retrieval_rows, questions, expected_repeats=config["retrieval_repeats"]), "agents": {},
                "retrieval_http_latency": latency_summary([r["http_elapsed_ms"] for r in retrieval_rows if r["channel"] == "hybrid"]),
-               "retrieval_rows": len(retrieval_rows), "agent_rows": len(agent_rows), "human_verified": 0, "answer_semantic_accuracy": None,
+               "expected_agent_rows": len(agent_keys), "retrieval_rows": len(retrieval_rows), "agent_rows": len(agent_rows), "human_verified": 0, "answer_semantic_accuracy": None,
                "complete": actual_retrieval == retrieval_keys and set(actual_agents) == agent_keys}
     lookup = {q["id"]: q for q in questions}
     for variant in config["agent_variants"]:
@@ -258,13 +308,13 @@ def summarize(output, config, questions):
         negative = [r for r in rows if lookup[r["question_id"]]["expected"] == "refused"]
         claims = sum(r["scores"]["claim_count"] for r in rows)
         summary["agents"][variant] = {
-            "n": len(rows), "statuses": dict(Counter(r["status"] for r in rows)),
+            "n": len(rows), "expected_positive": positive_count, "expected_negative": negative_count, "statuses": dict(Counter(r["status"] for r in rows)),
             "refusal_reasons": dict(Counter(r["refusal_reason"] for r in rows if r["status"] == "refused")),
-            "positive_answer_rate": sum(r["scores"]["answered"] for r in positive) / 48,
-            "false_refusal_rate": sum(r["scores"]["false_refusal"] for r in positive) / 48,
-            "gold_fact_citation_recall": bootstrap_mean([next((r["scores"]["gold_fact_citation_recall"] for r in positive if r["question_id"] == q["id"]), 0.0) for q in questions if q["expected"] == "answered"]),
-            "negative_refusal_rate": sum(r["scores"]["negative_refused"] for r in negative) / 12,
-            "negative_refusal_without_operational_failure_rate": sum(r["scores"]["negative_refused_without_operational_failure"] for r in negative) / 12,
+            "positive_answer_rate": sum(r["scores"]["answered"] for r in positive) / positive_count if positive_count else None,
+            "false_refusal_rate": sum(r["scores"]["false_refusal"] for r in positive) / positive_count if positive_count else None,
+            "gold_fact_citation_recall": bootstrap_mean([next((r["scores"]["gold_fact_citation_recall"] for r in positive if r["question_id"] == q["id"]), 0.0) for q in selected_questions if q["expected"] == "answered"]),
+            "negative_refusal_rate": sum(r["scores"]["negative_refused"] for r in negative) / negative_count if negative_count else None,
+            "negative_refusal_without_operational_failure_rate": sum(r["scores"]["negative_refused_without_operational_failure"] for r in negative) / negative_count if negative_count else None,
             "operational_failures": sum(r["scores"]["operational_failure"] for r in rows),
             "identity_valid_claim_rate": sum(r["scores"]["identity_valid_claims"] for r in rows) / claims if claims else None,
             "claims": claims, "latency": latency_summary([r["latency_ms"] for r in rows]),
@@ -281,9 +331,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--phase", choices=["retrieval", "agents", "all", "summary"], default="all")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--profile", choices=["original", "paced"], default="original")
     args = parser.parse_args()
     environment()
     config, questions = read_dataset()
+    if args.profile == "paced":
+        config = apply_paced_profile(config, questions)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     meta_file = output / "metadata.json"
@@ -305,7 +358,7 @@ def main():
     if args.phase in ("retrieval", "all"):
         retrieval(config, questions, bindings, output)
     if args.phase in ("agents", "all"):
-        asyncio.run(agents(config, questions, bindings, output))
+        asyncio.run(agents(config, agent_questions(config, questions), bindings, output))
     post_audit = audit()
     save_json(output / "post_audit.json", post_audit)
     if any(meta[key] != post_audit[key] for key in ("chunks_sha256", "qdrant_payload_sha256")):
