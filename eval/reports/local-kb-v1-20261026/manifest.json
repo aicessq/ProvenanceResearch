@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-26",
+  "description": "Actual live local KB benchmark. Raw evidence remains in ignored local result folders. All semantic labels remain unverified.",
+  "runs": {
+    "formal": {
+      "raw_directory": "eval/results/local-kb-v1.20261026-formal-01",
+      "files": {
+        "agents.jsonl": {
+          "sha256": "d81557407b7059a27e4ae14b5a8f9b649b13257d86492c1e869d005918d1ac76",
+          "bytes": 585456
+        },
+        "audit.json": {
+          "sha256": "ad0cb94ca66a587d0bb88f1bb29c37fb4a7c6e1f81a4b77262ab547b3fb12caa",
+          "bytes": 755
+        },
+        "metadata.json": {
+          "sha256": "ede0ea212a2f4cff27e6ab5cbf3d51d08f50bfc22241bc70ebc3166cf226b9a6",
+          "bytes": 17066
+        },
+        "post_audit.json": {
+          "sha256": "ad0cb94ca66a587d0bb88f1bb29c37fb4a7c6e1f81a4b77262ab547b3fb12caa",
+          "bytes": 755
+        },
+        "retrieval.jsonl": {
+          "sha256": "c1c55a7b338d3efe52ffad0d9f2eda31f218ecad6d58817e6273f588bc9ddcc1",
+          "bytes": 18016389
+        },
+        "summary.json": {
+          "sha256": "45a45429316736a28f52bc5c9c354731539ffa06f168a7995ace3eac18799d67",
+          "bytes": 16014
+        },
+        "warmup.json": {
+          "sha256": "4ce7673b1b24108f873d6e2f6f7a63c5ae7d2614010bcdc00ca3d5cc22cbd5d3",
+          "bytes": 40
+        }
+      }
+    },
+    "paced": {
+      "raw_directory": "eval/results/local-kb-v1.20261026-paced-01",
+      "files": {
+        "agents.jsonl": {
+          "sha256": "b19e995e1e2d370c18d019c2433ecc891f600ca20765be3a259d9f323e5d93a1",
+          "bytes": 485790
+        },
+        "audit.json": {
+          "sha256": "ad0cb94ca66a587d0bb88f1bb29c37fb4a7c6e1f81a4b77262ab547b3fb12caa",
+          "bytes": 755
+        },
+        "metadata.json": {
+          "sha256": "c21c106d5ec21e2a8759cb9175373d4abb5a2046677840342aebf529349e6cb4",
+          "bytes": 19120
+        },
+        "post_audit.json": {
+          "sha256": "ad0cb94ca66a587d0bb88f1bb29c37fb4a7c6e1f81a4b77262ab547b3fb12caa",
+          "bytes": 755
+        },
+        "retrieval.jsonl": {
+          "sha256": "acf00c1ffa025c39a8b208dbd3b8d53c5ebfa6dcd5e15410d2c8f36077893452",
+          "bytes": 18016485
+        },
+        "summary.json": {
+          "sha256": "a306d4f8e6875a37b761756cd6f849889aff3a0121e505911ea5c0d37baff20f",
+          "bytes": 16187
+        },
+        "warmup.json": {
+          "sha256": "66a08f7b56873f473b8164fb1fb2bd7635249a67a3045087eaebf5e72aa445fb",
+          "bytes": 39
+        }
+      }
+    }
+  }
+}

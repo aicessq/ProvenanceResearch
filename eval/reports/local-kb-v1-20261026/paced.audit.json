@@ -1,0 +1,17 @@
+{
+  "documents": 16,
+  "child_chunks": 1892,
+  "facts": 62,
+  "unmapped_facts": [],
+  "chunks_sha256": "0a107a72ef2085332fd2d6f8f24ed9d87cc001183007c51a3da66275af39c9ec",
+  "qdrant_payload_sha256": "90f4effc1980bc2af8587f5f1936c3e690fad01d5fd0cdf53176a964f6462c67",
+  "index_identity": "model=bge-base-en-v1.5;dim=768;normalize=true;preprocess=v1",
+  "server_identity": {
+    "nonce": "d0086ec01e7b46349397e6436aad3046",
+    "database": "research_eval_local_v1",
+    "collection": "eval_local_bge_768_v1",
+    "redis_db": "4",
+    "embedding_model_path": "D:\\Code_MyProject\\ProvenanceResearch\\knowledge_engine\\models\\bge-base-en-v1.5",
+    "source_fingerprint": "8e827640bac714c9d8e290fed6d0406a27dc7af917b5229ffffa6cec481dd3cf"
+  }
+}
