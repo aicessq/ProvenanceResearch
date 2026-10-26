@@ -349,3 +349,15 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 两个真实任务完成生命周期但拒答：citation_gate_failed（摘要被模型声明为全文），invalid_planner_output/no_progress。保留失败记录，不把连接成功称为质量通过；未运行正式 P4 对照，完整 KE 集成仍未验收。重启方法和边界见 windows-local-run.md。
 
 - Windows 契约检查首次未启用 UTF-8，读取中文 git 输出触发 GBK 解码异常；按本机既有命令加 `-X utf8` 后仓库契约通过，不修改业务代码规避环境问题。
+
+
+## 2026-10-26 本地 Embedding 例外接入
+
+- 新增 reranker 关闭不得加载权重的回归先红（1 failed / 11 passed），接入 RERANKER_ENABLED 后通过；本地模型加载增加 local_files_only=True、trust_remote_code=False 的契约测试。Embedding、retriever、默认配置针对性回归：14 passed。
+- 配置视图新增本地 Embedding 无需云 key、其他能力不因此放宽的测试，先红后绿：12 passed。补缺路径仍显示未配置的检查。
+- KE 全量测试两次在收集期因 safety_guard.py 读取报 Bad file descriptor、随后文件消失而中断（4 errors / 28 deselected）。该文件初始无 diff，按 HEAD 恢复后再次在读取时消失；未修改或删除安全逻辑，已请求用户核查本机隔离记录。该环境阻断未解决时，不宣称全量通过或文档入库/检索验收通过。
+- 本机原为空的 PostgreSQL 库通过现有迁移升级至 0002_ingest_task_reliability；未修改 migration/schema 源码，未对测试库以外数据执行清表。
+
+- 用户处理本机安全软件后，按 HEAD 恢复原 safety_guard.py（没有源码 diff），KE 完整单元回归：100 passed、34 deselected。配置回归最终 12 passed（含缺路径）；仓库契约通过。之前的文件读取环境阻断已解除。
+- 官方 BGE 权重下载过程中连接中断，使用同一官方源与固定 revision 续传完成，权重 437955512 bytes；生产加载完全离线。真实本地模型生成三个 768 维有限值向量，相关/不相关余弦分别约 0.902 / 0.301；该合成检查不构成质量评测。
+- 知识库 /health 200，/api/v1/health/ready 为 ok，PostgreSQL/Redis/Qdrant/Worker 全部正常。研究服务重启后，经统一前端代理的配置显示本地 embedding 已配置。

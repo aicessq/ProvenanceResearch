@@ -117,8 +117,14 @@ class CloudConfigService:
 
     def _mask(self, capability: str) -> dict[str, Any]:
         cfg = self.resolve(capability)
+        local_embedding = (
+            capability == "embedding" and cfg["provider"] == "local"
+            and bool(cfg["model"])
+            and bool(self._env.get("EMBEDDING_MODEL_PATH"))
+            and Path(self._env["EMBEDDING_MODEL_PATH"]).is_dir()
+        )
         return {
-            "configured": bool(cfg["provider"] and cfg["api_key"]),
+            "configured": local_embedding or bool(cfg["provider"] and cfg["api_key"]),
             "source": cfg["source"],
             "provider": cfg["provider"],
             "model": cfg["model"],

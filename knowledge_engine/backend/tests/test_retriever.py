@@ -237,3 +237,21 @@ def test_hybrid_retriever_rejects_empty_query() -> None:
         assert "query 不能为空" in str(exc)
     else:  # pragma: no cover - 测试必须抛错
         raise AssertionError("空 query 应抛出 ValueError")
+
+
+def test_from_db_disabled_reranker_does_not_load_local_weights(monkeypatch):
+    from types import SimpleNamespace
+    import app.services.retriever as module
+
+    class Vector:
+        def validate_embedding_identity(self):
+            pass
+    class Embedding:
+        identity = "local-test-identity"
+    def forbidden_loader(**kwargs):
+        raise AssertionError("disabled reranker must not load weights")
+    monkeypatch.setattr(module, "get_settings", lambda: SimpleNamespace(reranker_enabled=False), raising=False)
+    monkeypatch.setattr(module, "get_reranker_service", forbidden_loader)
+    monkeypatch.setattr(module.KeywordStore, "from_db", lambda db: object())
+    retriever = HybridRetriever.from_db(object(), embedding_service=Embedding(), vector_store=Vector())
+    assert retriever.reranker_service is None

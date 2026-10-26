@@ -199,3 +199,19 @@ def test_runtime_build_enforces_outbound_gate(monkeypatch, tmp_path) -> None:
     runtime = build_cloud_runtime()  # 授权齐备才放行
     assert runtime.llm is not None
     assert set(runtime.executor.tool_names) >= {"kb_search", "web_search", "arxiv_search"}
+
+
+def test_local_embedding_configuration_does_not_require_cloud_key(tmp_path):
+    model_dir = tmp_path / "bge-base-en-v1.5"
+    model_dir.mkdir()
+    env = {"EMBEDDING_PROVIDER": "local", "EMBEDDING_MODEL": "BAAI/bge-base-en-v1.5",
+           "EMBEDDING_MODEL_PATH": str(model_dir)}
+    service = make_service(tmp_path, env=env)
+    assert service.view()["capabilities"]["embedding"]["configured"] is True
+    assert service.view()["capabilities"]["embedding"]["api_key"] == "missing"
+    assert service.check_outbound("embedding")[0] is False
+    missing_env = {**env, "EMBEDDING_MODEL_PATH": str(tmp_path / "absent")}
+    assert make_service(tmp_path, env=missing_env).view()["capabilities"]["embedding"]["configured"] is False
+    env["VISION_PROVIDER"] = "local"
+    env["VISION_MODEL"] = "forbidden-local-vision"
+    assert make_service(tmp_path, env=env).view()["capabilities"]["vision"]["configured"] is False

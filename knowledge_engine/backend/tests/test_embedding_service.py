@@ -80,3 +80,14 @@ def test_embedding_service_raises_when_model_path_missing_without_fallback(tmp_p
             batch_size=2,
             allow_fallback=False,
         )
+
+
+def test_real_loader_is_offline_and_disables_remote_code(monkeypatch, tmp_path):
+    import app.services.embedding_service as module
+    seen = {}
+    def loader(path, **kwargs):
+        seen.update(kwargs)
+        return DeterministicEmbeddingModel(8)
+    monkeypatch.setattr(module, "SentenceTransformer", loader)
+    EmbeddingService.from_local_model(model_path=tmp_path, vector_size=8)
+    assert seen == {"trust_remote_code": False, "local_files_only": True}

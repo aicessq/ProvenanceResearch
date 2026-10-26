@@ -488,3 +488,11 @@
 - 端点白名单精确登记 `agnes/api.agnes-ai.cn` 及 `baidu/aip.baidubce.com`，保留 HTTPS、443、无任意子域和跨供应商限制；Baidu 名称与现有 OCR 适配器一致。沿用已批准的 Qwen 租户端点。
 - 本机启动 PostgreSQL、Redis、Qdrant 容器及真实研究后端、统一前端，所有发布端口只绑定 127.0.0.1。暂不启动历史 KE worker：embedding 凭证缺失且 KE 全云迁移尚未验收；reranker 保持关闭，不下载或加载本地模型，不将 OCR/Vision 的独立服务验证当作完整上传入库集成。
 - 保留用户此前“正式真实评测以后再做”的范围；本次小型合成服务检查和有预算研究冒烟不构成 P4 对照评测或阶段验收。
+
+
+## 2026-10-26 用户明确批准本地 Embedding 例外
+
+- 用户要求“用本地的 embedding”，并选择 BAAI/bge-base-en-v1.5；据此仅对 embedding 允许本地权重，其他生产模型的云端要求保持。该选择覆盖迁移期原先对 embedding 的全云约束，不扩展为本地 reranker、OCR、vision 或生成模型许可。
+- 原缓存只有元数据、没有 BGE 权重；从官方 Hugging Face 仓库补齐 revision a5beb1e3e68b9ab74eb54cfd186867f64f240e1a，使用忽略目录 knowledge_engine/models/bge-base-en-v1.5。配置为 768 维、新 collection bge_base_en_v15_768_a5beb1e3，不复用不同维度的既有索引；生产加载指定 local_files_only=True、trust_remote_code=False，缺文件或维度不符仍显式失败，不启用确定性测试编码器。
+- 检索器原先无条件加载 reranker；新增并遵守 RERANKER_ENABLED，默认关闭，避免仅授权本地 embedding 时附带加载另一套模型。显式注入的测试/调用服务保持既有行为。配置视图对明确配置本地路径的 embedding 不再要求云 API key；其他能力规则保持。
+- 仅执行仓库已有的两步 Alembic 升级到本机原先空的 research_agent 库；保持 SQLAlchemy 连接池及现有表结构定义，不新写 schema。知识库与 Worker 的本机启动脚本位于忽略目录，研究服务 KB 地址配置到回环端口 8001。

@@ -153,7 +153,7 @@ class EmbeddingService:
             raise EmbeddingServiceError(f"embedding 模型目录不存在: {resolved_path}")
 
         try:
-            model = SentenceTransformer(str(resolved_path), trust_remote_code=True)
+            model = SentenceTransformer(str(resolved_path), trust_remote_code=False, local_files_only=True)
         except Exception as exc:  # noqa: BLE001 - 需要把底层加载异常转成业务异常
             if allow_fallback:
                 return cls(

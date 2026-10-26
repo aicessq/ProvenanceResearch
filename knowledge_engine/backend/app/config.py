@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     embedding_vector_size: int = Field(default=1024, description="embedding 向量维度")
     embedding_batch_size: int = Field(default=16, description="embedding 批处理大小")
     reranker_batch_size: int = Field(default=16, description="reranker 批处理大小")
+    reranker_enabled: bool = Field(default=False, description="是否启用已配置的 reranker")
     fts_language_config: str = Field(default="simple", description="PostgreSQL FTS 语言配置")
 
     # ---- Phase 7+：远程 LLM 配置 ----

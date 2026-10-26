@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 from app.services.fusion import FusedRetrievalHit, RetrievalHit, reciprocal_rank_fusion
 from app.services.keyword_store import KeywordStore
@@ -74,7 +75,10 @@ class HybridRetriever:
             embedding_service=embedding,
             vector_store=vector,
             keyword_store=KeywordStore.from_db(db),
-            reranker_service=reranker_service or get_reranker_service(allow_fallback=allow_reranker_fallback),
+            reranker_service=reranker_service or (
+                get_reranker_service(allow_fallback=allow_reranker_fallback)
+                if get_settings().reranker_enabled else None
+            ),
         )
 
     def search(
