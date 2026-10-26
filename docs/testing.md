@@ -366,3 +366,10 @@ P3b 验收覆盖（fixture 全合成、fake/recorded、无凭证）：文本层�
 - 最终核心六目录：164 passed；KE 完整单元回归：101 passed、34 deselected。真实 HTTP + KBSearchTool 验证 PASS：一个 vector chunk、一个 K 前缀引用。记录在忽略的 .env.run/local-kb-smoke.json。没有执行正式 P4 对照，不宣称大规模或中文召回质量。
 
 - 收尾新增缺失/混合身份不得注册部分证据的回归，工具层 25 passed；最终六目录 165 passed。拆分后的 API 身份 schema 回归独立执行 1 passed；仓库契约及 diff 检查通过。
+
+
+## 2026-10-26 正式本地 KB 测评准备
+
+- 新 local-kb-v1：60 题、16 份固定原件；原始文件哈希校验及题目标注源文校验通过。真实生产上传/Worker 在独立评测资源生成 1892 个 child chunks，62 个源文片段全部映射；Qdrant 精确成员及模型身份与数据库一致。
+- 测评模块10项测试通过（审查发现的实际反例先红后绿）；最终核心六目录175 passed。仓库契约、diff 检查通过。两轴审查问题均修复并静态复核，见 local-kb-evaluation-review.md。
+- 题集与代码将在正式计分前固定提交。候选标注 human_verified=0，保留所有故障、缺失运行及 token 未知标记，不将自动化测量作为旧 P4 人工验收或多模态验收通过。
