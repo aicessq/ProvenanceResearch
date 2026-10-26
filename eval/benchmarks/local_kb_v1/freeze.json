@@ -1,0 +1,162 @@
+{
+  "version": "local-kb-v1",
+  "questions_sha256": "f87a25baf60a7ced8ef1a0b296ea8bf7b419f824b3bbfd6a5e842be7336fa4ce",
+  "documents": [
+    {
+      "doc_id": "zh_cybersec_2025",
+      "filename": "zh_cybersec_2025.pdf",
+      "sha256": "1d33936f96a3f410782b0f32a50d6a143d43a43d200310f71d09723f6b91a69c",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=021e7d7684474107b8f3febbb1c4f8b5&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E7%BD%91%E7%BB%9C%E5%AE%89%E5%85%A8%E6%B3%95",
+      "title": "中华人民共和国网络安全法"
+    },
+    {
+      "doc_id": "zh_cybersec_amend_2025",
+      "filename": "zh_cybersec_amend_2025.pdf",
+      "sha256": "582e3ba065c0e2ac64c27abeef039c5ff26933ed4f57ba979f0e5ba071b9bf80",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=621d029681d4457ab5fc56ec7c7464a1&title=%E5%85%A8%E5%9B%BD%E4%BA%BA%E6%B0%91%E4%BB%A3%E8%A1%A8%E5%A4%A7%E4%BC%9A%E5%B8%B8%E5%8A%A1%E5%A7%94%E5%91%98%E4%BC%9A%E5%85%B3%E4%BA%8E%E4%BF%AE%E6%94%B9%E3%80%8A%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E7%BD%91%E7%BB%9C%E5%AE%89%E5%85%A8%E6%B3%95%E3%80%8B%E7%9A%84%E5%86%B3%E5%AE%9A",
+      "title": "全国人民代表大会常务委员会关于修改《中华人民共和国网络安全法》的决定"
+    },
+    {
+      "doc_id": "zh_datasec_2021",
+      "filename": "zh_datasec_2021.pdf",
+      "sha256": "865621df5cff041a539c96187ec1a11428b7f9ab732b47ccb64e58dbde8a2e7b",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff80818179f5e0800179f885c7e70392&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E6%95%B0%E6%8D%AE%E5%AE%89%E5%85%A8%E6%B3%95",
+      "title": "中华人民共和国数据安全法"
+    },
+    {
+      "doc_id": "zh_persinfo_2021",
+      "filename": "zh_persinfo_2021.pdf",
+      "sha256": "79ad67e808596dfcd1b93b02ce6a4a1bd5ef846e13b58e82021078a03e881e70",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8081817b6472a3017b656cc2040044&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E4%B8%AA%E4%BA%BA%E4%BF%A1%E6%81%AF%E4%BF%9D%E6%8A%A4%E6%B3%95",
+      "title": "中华人民共和国个人信息保护法"
+    },
+    {
+      "doc_id": "zh_crypto_2019",
+      "filename": "zh_crypto_2019.pdf",
+      "sha256": "9ec7657ba3bf444209a1859b10be35dbe74bada75b6e16a3861a27a1d314a95d",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8080816f3cbb3c016f5acf6a244210&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E5%AF%86%E7%A0%81%E6%B3%95",
+      "title": "中华人民共和国密码法"
+    },
+    {
+      "doc_id": "zh_esign_2019",
+      "filename": "zh_esign_2019.pdf",
+      "sha256": "dc4f022fd5f46d9b7e4130c96526eb91449dfaf84cc3b41bd09a09a9c7b0ac8f",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8080816f135f46016f2163e4261aa1&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E7%94%B5%E5%AD%90%E7%AD%BE%E5%90%8D%E6%B3%95",
+      "title": "中华人民共和国电子签名法"
+    },
+    {
+      "doc_id": "zh_minor_2024",
+      "filename": "zh_minor_2024.pdf",
+      "sha256": "ea3b1858fcda43de458b1c57393c70f73c5db79060ad7bcd544d1950e811969c",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8081818f197cf001905e567af635a0&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E6%9C%AA%E6%88%90%E5%B9%B4%E4%BA%BA%E4%BF%9D%E6%8A%A4%E6%B3%95",
+      "title": "中华人民共和国未成年人保护法"
+    },
+    {
+      "doc_id": "zh_antimon_2022",
+      "filename": "zh_antimon_2022.pdf",
+      "sha256": "b6644764ad8be6096e660854a7d85cbef4c9b67560522d173a8b2d90389b7854",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8081818234ccb501829f46c6ac2a5a&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E5%8F%8D%E5%9E%84%E6%96%AD%E6%B3%95",
+      "title": "中华人民共和国反垄断法"
+    },
+    {
+      "doc_id": "zh_puborder_2025",
+      "filename": "zh_puborder_2025.pdf",
+      "sha256": "e78612f10f44bf46a14ee21ec9704df11086899e7e0bfabe3ec96bca972c981f",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff80818197af9ccc0197b159c38a0408&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E6%B2%BB%E5%AE%89%E7%AE%A1%E7%90%86%E5%A4%84%E7%BD%9A%E6%B3%95",
+      "title": "中华人民共和国治安管理处罚法"
+    },
+    {
+      "doc_id": "zh_admin_penalty_2021",
+      "filename": "zh_admin_penalty_2021.pdf",
+      "sha256": "f751b15da816b032ebd9546b03482e0b5355cdc3dee5cceb572626390fd09549",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff8080817703add20177373df6a43e33&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E8%A1%8C%E6%94%BF%E5%A4%84%E7%BD%9A%E6%B3%95",
+      "title": "中华人民共和国行政处罚法"
+    },
+    {
+      "doc_id": "zh_copyr_2020",
+      "filename": "zh_copyr_2020.pdf",
+      "sha256": "a6de73123d5cb7db5d6608790c4f4fd0238e90ccc192595c14aebc07bca37855",
+      "lang": "zh",
+      "source_url": "https://flk.npc.gov.cn/detail?id=ff808081752b7d430175e4766bab1557&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E8%91%97%E4%BD%9C%E6%9D%83%E6%B3%95",
+      "title": "中华人民共和国著作权法"
+    },
+    {
+      "doc_id": "us_nist_sp800_207",
+      "filename": "us_nist_sp800_207.pdf",
+      "sha256": "0290d6ece24874287316f4bf430fef770aa4ec08a2227c8f2c1e5b2ff975e03d",
+      "lang": "en",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-207.pdf",
+      "title": "Zero Trust Architecture (NIST SP 800-207)"
+    },
+    {
+      "doc_id": "us_nist_ai100_1",
+      "filename": "us_nist_ai100_1.pdf",
+      "sha256": "7576edb531d9848825814ee88e28b1795d3a84b435b4b797d3670eafdc4a89f1",
+      "lang": "en",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+      "title": "Artificial Intelligence Risk Management Framework (AI RMF 1.0) (NIST AI 100-1)"
+    },
+    {
+      "doc_id": "rfc_8446",
+      "filename": "rfc_8446.txt",
+      "sha256": "47871bc8820a2c3b6ea89f061055577058862cf543686b82d10131239702b3bd",
+      "lang": "en",
+      "source_url": "https://www.rfc-editor.org/rfc/rfc8446.txt",
+      "title": "RFC 8446: The Transport Layer Security (TLS) Protocol Version 1.3"
+    },
+    {
+      "doc_id": "rfc_6749",
+      "filename": "rfc_6749.txt",
+      "sha256": "f204fc8661d6c92d2ec6e0b54808f961a9ad26e792f57f312d9528335519bd71",
+      "lang": "en",
+      "source_url": "https://www.rfc-editor.org/rfc/rfc6749.txt",
+      "title": "RFC 6749: The OAuth 2.0 Authorization Framework"
+    },
+    {
+      "doc_id": "rfc_7519",
+      "filename": "rfc_7519.txt",
+      "sha256": "fecd930e9ccf2276b95c0017c6c4ff5d09352e4bc3c7629946447894e0f97248",
+      "lang": "en",
+      "source_url": "https://www.rfc-editor.org/rfc/rfc7519.txt",
+      "title": "RFC 7519: JSON Web Token (JWT)"
+    }
+  ],
+  "retrieval_repeats": 3,
+  "retrieval_k": [
+    1,
+    5,
+    10
+  ],
+  "agent_repeats": 1,
+  "agent_variants": [
+    "reference",
+    "current"
+  ],
+  "budget": {
+    "max_rounds": 3,
+    "max_tool_calls": 5,
+    "max_tokens": 8000,
+    "deadline_seconds": 120
+  },
+  "max_output_tokens_per_call": 1024,
+  "temperature": 0,
+  "concurrency": 3,
+  "human_verified": 0,
+  "gold_policy": "source-span anchored candidate annotations, not human-adjudicated semantic gold",
+  "negative_policy": "closed corpus only; no web, memory, prediction or inferred missing facts",
+  "languages": {
+    "en_answerable": 32,
+    "zh_answerable": 16,
+    "zh_insufficient": 12
+  }
+}
