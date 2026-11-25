@@ -19,6 +19,8 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
+import os
 import re
 import sys
 import time
@@ -31,14 +33,17 @@ if str(REPO_ROOT) not in sys.path:
 from agent.budget import Budget  # noqa: E402
 from agent.citation_gate import CitationGate  # noqa: E402
 from agent.loop import AgentLoop, SemanticVerifier  # noqa: E402
-from evidence.store import EvidenceStore  # noqa: E402
-from tools import ArxivSearchTool, ToolExecutor, WebSearchTool  # noqa: E402
+from evidence.registry import SourceRegistry  # noqa: E402
+from evidence.store import EvidenceStore
+from providers.errors import ProviderError
+from providers.llm.base import LLMMessage  # noqa: E402
+from tools import ArxivSearchTool, EvidenceReadTool, SourceFetchTool, ToolExecutor, WebSearchTool  # noqa: E402
 
 from eval.corpus_search import CorpusIndex, RETRIEVER_VERSION  # noqa: E402
 from eval.metrics import score_condition  # noqa: E402
-from eval.pipelines import CONDITIONS, EvalKBSearchTool, RunResult, UsageLLM, run_condition  # noqa: E402
+from eval.pipelines import CONDITIONS, EvalKBSearchTool, RunResult, UsageLLM, run_condition, writer_payload  # noqa: E402
 
-DEFAULT_FREEZE = REPO_ROOT / "eval" / "baseline" / "round1.freeze.json"
+DEFAULT_FREEZE = REPO_ROOT / "eval" / "baseline" / "round8.freeze.json"
 DEFAULT_CORPUS = REPO_ROOT / "eval" / "corpus"
 
 _TAVILY_FAKE = {
@@ -77,17 +82,20 @@ class FakeEvalLLM:
         stage = (metadata or {}).get("stage", "")
         if self._responses:
             text = self._responses.pop(0)
+        elif stage == "scope":
+            text = "{}"
         elif stage == "plan":
             self._plan_calls += 1
             query = ""
             m = re.search(r"问题：([^\n]+)", messages[0].content)
             if m:
                 query = m.group(1).strip()
+            if not query and len(messages) > 1:
+                query = json.loads(messages[1].content)["question"]
             calls = [] if self._plan_calls > 1 else [{"tool": self._tool, "args": {"query": query, "top_k": 5}}]
             text = json.dumps({"tool_calls": calls}, ensure_ascii=False)
         elif stage == "generate":
-            m = re.search(r'(\{"question".*\})\s*$', messages[0].content, re.S)
-            payload = json.loads(m.group(1)) if m else {"evidence": []}
+            payload = writer_payload(messages)
             evidence = payload.get("evidence") or []
             if not evidence:
                 text = json.dumps({"answer": "", "claims": []}, ensure_ascii=False)
@@ -97,7 +105,7 @@ class FakeEvalLLM:
                 text = json.dumps(
                     {
                         "answer": claim_text,
-                        "claims": [{"claim": claim_text, "citations": [top["citation_id"]], "scope": top.get("scope", "fulltext")}],
+                        "claims": [{"claim": claim_text, "citations": [top.get("citation_id", top.get("id"))], "scope": top.get("scope", "fulltext")}],
                     },
                     ensure_ascii=False,
                 )
@@ -115,7 +123,7 @@ class FakeEvalLLM:
 
 
 class YesChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return True
 
 
@@ -125,40 +133,30 @@ def _mock_http_client():
     def handler(request):
         if "tavily.com" in str(request.url):
             return httpx.Response(200, json=_TAVILY_FAKE)
-        return httpx.Response(200, text=_ARXIV_FAKE_BODY)
+        if request.url.host == "export.arxiv.org":
+            return httpx.Response(200, text=_ARXIV_FAKE_BODY)
+        return httpx.Response(200, text="<p>TLS 1.2 is defined by RFC 5246.</p>",
+                              headers={"content-type": "text/html"})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
 
 
 def build_executor(mode: str, corpus: CorpusIndex, store: EvidenceStore, index_identity: str,
-                   *, include_read_tools: bool = False, client=None) -> ToolExecutor:
-    from evidence.registry import SourceRegistry
-    from tools import EvidenceReadTool, SourceFetchTool
-    extra = []
-    if mode == "fake":
-        client = client or _mock_http_client()
-        if include_read_tools:
-            extra = [EvidenceReadTool(store=store),
-                     SourceFetchTool(registry=SourceRegistry(), store=store, client=client)]
-        return ToolExecutor(
-            tools=[
-                EvalKBSearchTool(corpus, store, index_identity),
-                WebSearchTool(api_key="fake-key", client=client, store=store),
-                ArxivSearchTool(client=client, store=store, sleep=_no_sleep),
-            ] + extra
-        )
+                   *, include_read_tools: bool = True, client=None) -> ToolExecutor:
     import os
 
-    import httpx
-
-    if include_read_tools:
-        extra = [EvidenceReadTool(store=store), SourceFetchTool(registry=SourceRegistry(), store=store, client=client)]
+    registry = SourceRegistry()
+    if mode == "fake" and client is None:
+        client = _mock_http_client()
     return ToolExecutor(
         tools=[
             EvalKBSearchTool(corpus, store, index_identity),
-            WebSearchTool(api_key=(os.environ.get("TAVILY_API_KEY") or "").strip(), store=store, client=client),
-            ArxivSearchTool(store=store, client=client),
-        ] + extra
+            WebSearchTool(api_key="fake-key" if mode == "fake" else (os.environ.get("TAVILY_API_KEY") or "").strip(),
+                          client=client, store=store),
+            ArxivSearchTool(client=client, store=store, **({"sleep": _no_sleep} if mode == "fake" else {})),
+        ] + ([SourceFetchTool(registry=registry, client=client, store=store),
+              EvidenceReadTool(store=store)] if include_read_tools else []),
+        registry=registry,
     )
 
 
@@ -172,8 +170,8 @@ def require_live_config(conditions: list[str]) -> None:
 
     if not ((os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()):
         raise SystemExit("live 模式需要 LLM_API_KEY（或兼容回退 DEEPSEEK_API_KEY）；拒绝以 fake/本地模型产出评测结论")
-    if any(c in conditions for c in ("B", "C")) and not (os.environ.get("TAVILY_API_KEY") or "").strip():
-        raise SystemExit("条件 B/C 需要 TAVILY_API_KEY（外部源是条件定义的一部分）；缺配置显式失败")
+    if any(c in conditions for c in ("B", "C", "D")) and not (os.environ.get("TAVILY_API_KEY") or "").strip():
+        raise SystemExit("条件 B/C/D 需要 TAVILY_API_KEY（外部源是条件定义的一部分）；缺配置显式失败")
 
     # 出站门：live 评测会外送问题/查询——凭证不等于授权（design.md §9）
     import sys as _sys
@@ -205,10 +203,10 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def verify_freeze(freeze: dict) -> None:
+def verify_freeze(freeze: dict, *, corpus_manifest: Path | None = None) -> None:
     ds = freeze["dataset"]
     q_path = REPO_ROOT / ds["questions_file"]
-    m_path = REPO_ROOT / ds["corpus_manifest"]
+    m_path = corpus_manifest or REPO_ROOT / ds["corpus_manifest"]
     for path, expected in ((q_path, ds["questions_sha256"]), (m_path, ds["corpus_manifest_sha256"])):
         actual = sha256_file(path)
         if actual != expected:
@@ -336,6 +334,7 @@ async def run_baseline(freeze: dict, *, mode: str, conditions: list[str], runs: 
     index_identity = f"{freeze['dataset']['corpus_manifest_sha256'][:12]}+{RETRIEVER_VERSION}"
     per_condition: dict[str, dict] = {}
     details: dict[str, list] = {}
+    grouped: dict[str, dict] = {}
 
     for condition in conditions:
         runs_by_question: dict[str, list[RunResult]] = {}
@@ -352,7 +351,9 @@ async def run_baseline(freeze: dict, *, mode: str, conditions: list[str], runs: 
                     deadline_seconds=freeze["budget"]["deadline_seconds"],
                 )
                 llm = UsageLLM(FakeEvalLLM() if mode == "fake" else _live_llm())
-                checker = YesChecker() if mode == "fake" else SemanticVerifier(llm, budget=budget)
+                checker = YesChecker() if mode == "fake" else (
+                    None if condition == "D" else SemanticVerifier(llm, budget=budget)
+                )
                 executor = build_executor(mode, corpus, store, index_identity)
                 result = await run_condition(
                     condition,
@@ -375,6 +376,7 @@ async def run_baseline(freeze: dict, *, mode: str, conditions: list[str], runs: 
                 details[condition].append(
                     {
                         "question_id": qid,
+                        "question_type": question["type"],
                         "run": run_idx,
                         "status": result.status,
                         "refusal_reason": result.refusal_reason,
@@ -382,15 +384,57 @@ async def run_baseline(freeze: dict, *, mode: str, conditions: list[str], runs: 
                         "latency_ms": result.latency_ms,
                         "tool_calls": result.budget_report.get("tool_calls", 0),
                         "error": result.error,
+                        "answer_text": result.answer_text,
+                        "claims": result.claims,
+                        "candidate_evidence": result.candidate_evidence,
+                        "ranked_evidence": result.ranked_refs,
+                        "writer_evidence": result.writer_evidence,
+                        "citation_checks": result.citation_checks,
+                        "writer_diagnostics": result.writer_diagnostics,
+                        "scope_fallback": result.scope_fallback,
+                        "model_stages": result.model_stages,
+                        "budget_rejections": result.budget_rejections,
+                        "search_summary": result.search_summary,
+                        "missing_questions": result.missing_questions,
+                        "partial": result.partial,
+                        "usage": result.usage,
+                        "cost_unknown": result.cost_unknown,
                     }
                 )
             runs_by_question[qid] = collected
+            if mode == "live":
+                statuses = "/".join(result.status for result in collected)
+                print(f"[{condition}] {qid} {statuses}", flush=True)
         per_condition[condition] = score_condition(
             runs_by_question,
             questions,
             budget={"max_tool_calls": freeze["budget"]["max_tool_calls"]},
         )
-    return {"conditions": per_condition, "details": details}
+        grouped[condition] = {
+            group: score_condition(
+                {qid: runs_by_question[qid] for qid in ids if qid in runs_by_question},
+                questions, budget={"max_tool_calls": freeze["budget"]["max_tool_calls"]},
+            )
+            for group, ids in freeze.get("comparison_groups", {}).items()
+        }
+    return {"conditions": per_condition, "details": details, "groups": grouped}
+
+
+def _live_timeout_seconds() -> float:
+    try:
+        value = float(os.environ.get("LLM_TIMEOUT_SECONDS") or "30")
+    except ValueError as exc:
+        raise SystemExit("LLM_TIMEOUT_SECONDS 应为正数") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise SystemExit("LLM_TIMEOUT_SECONDS 应为正数")
+    return value
+
+
+def _eval_reasoning_effort() -> str | None:
+    value = (os.environ.get("P4_LLM_REASONING_EFFORT") or "").strip()
+    if value and value not in {"none", "low", "medium", "high"}:
+        raise SystemExit("P4_LLM_REASONING_EFFORT 可选 none、low、medium、high")
+    return value or None
 
 
 def _live_llm(*, client=None):
@@ -398,8 +442,10 @@ def _live_llm(*, client=None):
 
     from providers.llm.deepseek import DeepSeekLLMProvider
 
-    # LLM_* 配置面优先、DEEPSEEK_* 兼容回退（与 build_cloud_runtime 同源，2026-10-12 硬化轮决议）
+    # LLM_* 配置面优先、DEEPSEEK_* 兼容回退（与 build_cloud_runtime 同源，2026-10-11 硬化轮决议）
     kwargs = {
+        "timeout_seconds": _live_timeout_seconds(),
+        "reasoning_effort": _eval_reasoning_effort(),
         "api_key": (os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip(),
         "model": (os.environ.get("LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat").strip(),
     }
@@ -416,10 +462,23 @@ def _live_llm(*, client=None):
     return DeepSeekLLMProvider(**kwargs)
 
 
+async def probe_live_model() -> None:
+    """Fail before sending benchmark questions if the selected model is unavailable."""
+    try:
+        reply = await _live_llm().generate([LLMMessage("user", "Reply with the single word OK.")])
+    except ProviderError as exc:
+        raise SystemExit(f"云模型预检失败（{exc.code.value}），未开始逐题评测") from None
+    if not reply.text.strip():
+        raise SystemExit("云模型预检返回空文本，未开始逐题评测")
+
+
 def evaluate_thresholds(freeze: dict, report: dict) -> dict:
     """live 模式按预冻结门槛判定；fake 模式不算结论。"""
     if report["mode"] != "live":
         return {"evaluated": False, "reason": "mode=fake 只验证机械正确性，不判门槛"}
+    if freeze.get("assessment") == "research_judgment_rubric":
+        return {"evaluated": False, "reason": "research_judgment_rubric",
+                "safety": report["safety"]["passed"]}
     gates = freeze["thresholds"]
     verdicts = {}
     for condition, metrics in report["conditions"].items():
@@ -439,7 +498,7 @@ def evaluate_thresholds(freeze: dict, report: dict) -> dict:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="P4 baseline runner")
     parser.add_argument("--mode", choices=["fake", "live"], default="fake")
-    parser.add_argument("--conditions", default=",".join(CONDITIONS))
+    parser.add_argument("--conditions", help="默认使用冻结件定义的条件")
     parser.add_argument("--runs", type=int, default=0, help="每条件每题运行次数；默认取冻结件")
     parser.add_argument("--out", default=str(REPO_ROOT / "eval" / "results"))
     parser.add_argument("--freeze", default=str(DEFAULT_FREEZE))
@@ -447,25 +506,35 @@ def main(argv: list[str] | None = None) -> None:
 
     freeze = json.loads(Path(args.freeze).read_text(encoding="utf-8"))
     verify_freeze(freeze)
-    conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
+    conditions = ([c.strip() for c in args.conditions.split(",") if c.strip()]
+                  if args.conditions else list(freeze["conditions"]))
     unknown = [c for c in conditions if c not in CONDITIONS]
     if unknown:
         raise SystemExit(f"未知条件: {unknown}")
     runs = args.runs or int(freeze["runs_per_condition"])
     if args.mode == "live":
         require_live_config(conditions)
+        asyncio.run(probe_live_model())
 
     questions = load_questions(freeze)
     corpus = CorpusIndex(DEFAULT_CORPUS)
     started = time.perf_counter()
     baseline = asyncio.run(run_baseline(freeze, mode=args.mode, conditions=conditions, runs=runs, corpus=corpus, questions=questions))
     safety = asyncio.run(run_safety_suite())
+    uses_rubric = freeze.get("assessment") == "research_judgment_rubric"
+    if uses_rubric:
+        # The word-matching score and gold-locator accuracy are undefined for open research judgments.
+        for metrics in [*baseline["conditions"].values(),
+                        *(group for groups in baseline["groups"].values() for group in groups.values())]:
+            for key in ("citation_accuracy", "answer_correctness_mechanical"):
+                metrics["answers"][key] = {"n": 0, "mean": None, "std": None, "ci95": [None, None]}
 
     report = {
         "freeze_version": freeze["freeze_version"],
         "mode": args.mode,
         "not_a_conclusion": args.mode != "live",
         "verified_gold": 0,
+        **({"rubric": freeze["rubric"]} if uses_rubric else {}),
         "dataset": {
             "questions_sha256": freeze["dataset"]["questions_sha256"],
             "corpus_manifest_sha256": freeze["dataset"]["corpus_manifest_sha256"],
@@ -473,6 +542,16 @@ def main(argv: list[str] | None = None) -> None:
         },
         "runs_per_condition": runs,
         "conditions": baseline["conditions"],
+        "groups": baseline["groups"],
+        "runtime_config": {
+            "provider": (os.environ.get("LLM_PROVIDER") or "deepseek") if args.mode == "live" else "fixture",
+            "model": (os.environ.get("LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL")
+                      or "deepseek-chat") if args.mode == "live" else "fixture",
+            "sources": ["eval_corpus", "tavily", "arxiv"],
+            "model_request_timeout_seconds": _live_timeout_seconds() if args.mode == "live" else None,
+            "reasoning_effort": _eval_reasoning_effort() if args.mode == "live" else None,
+            "budget": freeze["budget"],
+        },
         "details": baseline["details"],
         "safety": safety,
         "thresholds": evaluate_thresholds(freeze, {"mode": args.mode, "conditions": baseline["conditions"], "safety": safety}),
@@ -483,7 +562,7 @@ def main(argv: list[str] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     suffix = "fake" if args.mode == "fake" else "live"
-    out_path = out_dir / f"round1.{suffix}.{stamp}.json"
+    out_path = out_dir / f"{Path(args.freeze).stem}.{suffix}.{stamp}.json"
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"report -> {out_path}")

@@ -111,6 +111,17 @@ def test_reader_pool_caps_and_output_top() -> None:
     assert "Ww14" not in result_ids
 
 
+def test_reader_external_reserve_prevents_kb_starvation() -> None:
+    """F6（2026-10-12）：KB 存量再多也不得活埋外部证据——外部有则保底进输出。"""
+    kb_items = [_ev(f"k{i:02d}") for i in range(10)]
+    web_items = [_ev(f"w{i:02d}", "web") for i in range(2)]
+    ranked = fuse({"kb": kb_items, "web": web_items})
+    ids = [ev.citation_id for ev in ranked]
+    assert len(ids) == 8
+    assert "Ww00" in ids and "Ww01" in ids  # 修复前纯 top-N 全是 KB
+    assert ids.count("Ww00") == 1
+
+
 def test_reader_rrf_formula_uses_k60() -> None:
     a = _ev("a")
     ranked = fuse({"kb": [a]})

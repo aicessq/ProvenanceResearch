@@ -3,25 +3,10 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 
-from app.schemas.state import ResearchState
 from app.services.research_service import DeleteTaskResult, ResearchService
-
-
-class StubTopology:
-    def __init__(self, report_title: str) -> None:
-        self.report_title = report_title
-        self.calls = 0
-
-    async def execute(self, state: ResearchState, on_event=None) -> ResearchState:
-        self.calls += 1
-        if on_event:
-            on_event({"type": "stage_start", "agent": "planner", "progress": 10})
-            on_event({"type": "report_update", "agent": "writer", "progress": 97, "output": {"title": self.report_title}})
-        state.final_report = {"title": self.report_title}
-        state.claim_graph = [{"claim_id": "clm_001"}]
-        state.current_stage = "completed"
-        state.progress = 100
-        return state
+from .test_agentic_service import (
+    AutoWriter, FakeStoreHolder, PLAN_CALL, PLAN_DONE, ScriptLLM, SplitLLM, YesChecker, make_runtime,
+)
 
 
 class StubTaskStatus(str, Enum):
@@ -83,42 +68,51 @@ class StubTaskStore:
 
 
 def build_service() -> tuple[ResearchService, StubTaskStore]:
-    service = ResearchService()
+    def runtime_factory():
+        store = FakeStoreHolder().store
+        runtime = make_runtime(store, checker=YesChecker())
+        runtime.llm = SplitLLM(ScriptLLM([PLAN_CALL, PLAN_DONE]), AutoWriter(store))
+        return runtime
+
+    service = ResearchService(runtime_factory=runtime_factory)
     store = StubTaskStore()
     service._task_store = store
     service._task_status_enum = StubTaskStatus
     return service, store
 
 
-def test_create_task_sync_uses_hierarchical_topology() -> None:
+def test_create_task_sync_keeps_legacy_report_format() -> None:
     service, store = build_service()
-    service._hierarchical = StubTopology("sync-report")
 
     result = asyncio.run(service.create_task_sync({"user_query": "AI market", "task_type": "industry_report"}))
 
     assert result["status"] == "completed"
     assert result["selected_topology"] == "hierarchical"
-    assert result["result"]["report"]["title"] == "sync-report"
+    assert result["result"]["report"]["title"] == "AI market"
+    assert result["result"]["claim_graph"]
+    assert result["result"]["report"]["sections"][0]["citations"]
     assert store.created[0]["metadata"]["query"] == "AI market"
     assert any(update["status"] == StubTaskStatus.COMPLETED for update in store.updated)
 
 
 def test_create_task_emits_done_event_to_subscribers() -> None:
     service, _ = build_service()
-    service._hierarchical = StubTopology("async-report")
 
     async def scenario():
         task_meta = await service.create_task({"user_query": "AI market", "task_type": "industry_report"})
         queue = service.subscribe(task_meta["task_id"])
         try:
-            done_event = None
+            seen = []
             while True:
                 event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                if event.get("type") == "done":
+                seen.append(event)
+                if event.get("type") in {"done", "error", "cancelled"}:
                     done_event = event
                     break
-            assert done_event is not None
-            assert done_event["result"]["report"]["title"] == "async-report"
+            assert done_event["type"] == "done"
+            assert done_event["result"]["report"]["title"] == "AI market"
+            assert [event["type"] for event in seen][-2:] == ["report_update", "done"]
+            assert queue.empty()
         finally:
             service.unsubscribe(task_meta["task_id"], queue)
 
@@ -138,12 +132,18 @@ def test_get_task_falls_back_to_persisted_state() -> None:
 
 
 def test_delete_task_rejects_running_tasks() -> None:
-    service, _ = build_service()
+    service, store = build_service()
 
     async def scenario():
         task_meta = await service.create_task({"user_query": "AI market", "task_type": "industry_report"})
-        assert await service.delete_task(task_meta["task_id"]) == DeleteTaskResult.RUNNING
-        service.cancel_task(task_meta["task_id"])
+        task_id = task_meta["task_id"]
+        queue = service.subscribe(task_id)
+        assert await service.delete_task(task_id) == DeleteTaskResult.RUNNING
+        assert await service.cancel_task(task_id)
+        assert await service.cancel_task(task_id)
+        assert (await queue.get())["type"] == "cancelled"
+        assert queue.empty()
+        assert sum(update["status"] == StubTaskStatus.CANCELLED for update in store.updated) == 1
 
     asyncio.run(scenario())
 

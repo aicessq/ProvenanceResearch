@@ -24,6 +24,7 @@ from eval import metrics  # noqa: E402
 from eval.corpus_search import CorpusIndex  # noqa: E402
 from eval.pipelines import RunResult, UsageLLM, run_condition  # noqa: E402
 from eval.runner import (  # noqa: E402
+    DEFAULT_FREEZE,
     FakeEvalLLM,
     YesChecker,
     build_executor,
@@ -34,7 +35,7 @@ from eval.runner import (  # noqa: E402
 )
 from evidence.store import EvidenceStore  # noqa: E402
 
-FREEZE = json.loads((REPO_ROOT / "eval" / "baseline" / "round1.freeze.json").read_text(encoding="utf-8"))
+FREEZE = json.loads(DEFAULT_FREEZE.read_text(encoding="utf-8"))  # 跟随当前轮（round2 起）
 QUESTIONS = load_questions(FREEZE)
 
 
@@ -157,6 +158,32 @@ def test_condition_a_answers_with_cited_evidence(corpus) -> None:
     assert result.trace_types[-1] == "done"
 
 
+def _require_local_paper(doc_id: str) -> None:
+    text = REPO_ROOT / "eval" / "corpus" / "text" / f"{doc_id}.pages.jsonl"
+    if not text.is_file():
+        pytest.skip("arXiv 正文页镜像仅保存在本地缓存")
+
+
+def test_corpus_search_boosts_arxiv_id_matches(corpus) -> None:
+    """F3（2026-10-12）：中文问题里的 arXiv 编号是跨语言定位信号，编号命中页必须进前列。"""
+    for doc_id in ("ax_2304.09848v1", "ax_2304.09848v2"):
+        _require_local_paper(doc_id)
+    hits = corpus.search("arXiv 2304.09848 的 v1 与 v2 对引用指标的表述差异", top_k=5)
+    top_docs = [h.doc_id for h in hits]
+    assert "ax_2304.09848v1" in top_docs and "ax_2304.09848v2" in top_docs
+
+
+@pytest.mark.parametrize(("query", "doc_id"), [
+    ("Lost in the Middle How Language Models Use Long Contexts Liu paper", "ax_2307.03172"),
+    ("Self-RAG Learning to Retrieve Generate and Critique Asai paper", "ax_2310.11511"),
+    ("Evaluating Verifiability in Generative Search Engines 2304.09848 v2 citation recall", "ax_2304.09848v2"),
+    ("Evaluating Verifiability in Generative Search Engines 2304.09848v1 citation recall", "ax_2304.09848v1"),
+])
+def test_corpus_search_prioritizes_the_named_paper_and_explicit_version(corpus, query, doc_id):
+    _require_local_paper(doc_id)
+    assert corpus.search(query, top_k=3)[0].doc_id == doc_id
+
+
 def test_condition_b_pulls_external_evidence(corpus) -> None:
     async def scenario():
         store = EvidenceStore()
@@ -198,6 +225,21 @@ def test_condition_c_agentic_loop_registers_evidence_via_tool(corpus) -> None:
     assert result.status == "answered"
     assert "tool_call" in result.trace_types and "tool_result" in result.trace_types
     assert result.budget_report["tool_calls"] >= 1
+
+
+def test_condition_d_records_budget_rejections_before_any_model_request(corpus) -> None:
+    pytest.importorskip("langgraph")
+    store = EvidenceStore()
+    result = asyncio.run(run_condition(
+        "D", QUESTIONS["q001"], llm=UsageLLM(FakeEvalLLM()), checker=YesChecker(),
+        corpus=corpus, store=store, executor=build_executor("fake", corpus, store, "test-idx"),
+        budget=Budget(max_tokens=20),
+    ))
+    assert result.stop_reason == "budget_exhausted", result.error
+    assert result.usage["llm_calls"] == 0
+    assert result.budget_rejections
+    assert all(row["cause"] == "input_estimate" and row["estimated_input_tokens"] >= row["available_tokens"]
+               for row in result.budget_rejections)
 
 
 def test_condition_refuses_when_writer_gives_no_claims(corpus) -> None:
@@ -274,3 +316,73 @@ def test_freeze_questions_all_resolve() -> None:
     assert set(QUESTIONS) == set(FREEZE["dataset"]["question_ids"])
     assert len(QUESTIONS) == 18
     assert sum(1 for q in QUESTIONS.values() if q["expected_behavior"] == "refused") == 4
+
+
+def test_live_probe_aborts_on_provider_auth_error(monkeypatch) -> None:
+    from eval import runner
+    from providers.errors import ProviderError, ProviderErrorCode
+
+    class ExpiredAccount:
+        async def generate(self, messages, metadata=None):
+            assert messages[0].content == "Reply with the single word OK."
+            raise ProviderError(ProviderErrorCode.AUTH_FAILED, "private provider diagnostics")
+
+    monkeypatch.setattr(runner, "_live_llm", ExpiredAccount)
+    with pytest.raises(SystemExit, match="AUTH_FAILED") as exc:
+        asyncio.run(runner.probe_live_model())
+    assert "private provider diagnostics" not in str(exc.value)
+
+
+def test_research_judgment_freeze_uses_independent_questions_and_rubric():
+    from eval.runner import evaluate_thresholds, verify_freeze
+
+    path = REPO_ROOT / "eval" / "baseline" / "research-judgment.freeze.json"
+    freeze = json.loads(path.read_text())
+    verify_freeze(freeze)
+    assert list(freeze["conditions"]) == ["B", "D"]
+    assert len(load_questions(freeze)) == 3
+    assert len(freeze["rubric"]["criteria"]) == 4
+    assert evaluate_thresholds(freeze, {"mode": "live", "safety": {"passed": True}}) == {
+        "evaluated": False, "reason": "research_judgment_rubric", "safety": True,
+    }
+
+
+def test_live_eval_uses_configured_model_timeout(monkeypatch):
+    from eval import runner
+    from providers.llm import deepseek
+
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "75")
+    monkeypatch.setattr(deepseek, "DeepSeekLLMProvider", lambda **kwargs: kwargs)
+    assert runner._live_llm()["timeout_seconds"] == 75
+
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "nan")
+    with pytest.raises(SystemExit, match="LLM_TIMEOUT_SECONDS"):
+        runner._live_llm()
+
+
+def test_legacy_eval_cancels_when_the_task_deadline_expires(corpus):
+    class SlowWriter:
+        async def generate(self, messages, metadata=None):
+            await asyncio.sleep(10)
+
+    async def scenario():
+        result = await run_condition(
+            "B", QUESTIONS["q001"], llm=SlowWriter(), checker=YesChecker(),
+            corpus=corpus, store=EvidenceStore(), budget=Budget(deadline_seconds=0.12),
+            index_identity="test-index",
+        )
+        assert result.status == "error"
+        assert result.error.startswith("TimeoutError")
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=1))
+
+
+def test_eval_reasoning_override_is_explicit(monkeypatch):
+    from eval import runner
+    from providers.llm import deepseek
+
+    monkeypatch.setattr(deepseek, "DeepSeekLLMProvider", lambda **kwargs: kwargs)
+    monkeypatch.setenv("P4_LLM_REASONING_EFFORT", "none")
+    assert runner._live_llm()["reasoning_effort"] == "none"
+    monkeypatch.delenv("P4_LLM_REASONING_EFFORT")
+    assert runner._live_llm()["reasoning_effort"] is None

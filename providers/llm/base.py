@@ -23,6 +23,7 @@ class LLMResult:
     model: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    finish_reason: str | None = None
 
 
 class LLMProvider(Protocol):

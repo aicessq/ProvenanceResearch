@@ -31,6 +31,40 @@ _ID_RE = re.compile(r"<id>\s*http://arxiv\.org/abs/(\d{4}\.\d{4,5}(v\d+)?)\s*</i
 _TITLE_RE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 _SUMMARY_RE = re.compile(r"<summary>(.*?)</summary>", re.DOTALL)
 
+# 查询侧识别：arXiv 编号（可带版本）、独立版本标记、《》/ASCII 引号标题
+_QUERY_ID_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
+_QUERY_VERSION_RE = re.compile(r"\bv\d+\b")
+_QUERY_TITLE_RE = re.compile(r"《([^》]{2,})》|\"([A-Za-z0-9][^\"]{2,})\"")
+
+
+def build_search_params(query: str, top_k: int) -> dict:
+    """按查询形态选 arXiv API 参数：显式编号 → id_list；标题短语 → ti:"..."；否则 all: 全文。
+
+    中文问题整段进 all: 在 arXiv API 上命中率极低（P4 复测归因：q026/q028 因此取不到论文）；
+    编号与标题是查询里最可靠的定位信号，优先使用。
+    """
+    ids = _QUERY_ID_RE.findall(query)
+    id_list: list[str] = []
+    if ids:
+        standalone = _QUERY_VERSION_RE.findall(_QUERY_ID_RE.sub(" ", query))
+        bases = {base for base, _ in ids}
+        explicit_versions: dict[str, list[str]] = {}
+        for base, version in ids:
+            if version:
+                explicit_versions.setdefault(base, []).append(version)
+        if standalone and len(bases) == 1:
+            only_base, = bases
+            explicit_versions.setdefault(only_base, []).extend(standalone)
+        id_list = list(dict.fromkeys(
+            f"{base}{version}" for base, _ in ids for version in explicit_versions.get(base, [""])
+        ))
+    titles = [a or b for a, b in _QUERY_TITLE_RE.findall(query)]
+    if id_list:
+        return {"id_list": ",".join(id_list), "max_results": top_k}
+    if titles:
+        return {"search_query": " OR ".join(f'ti:"{t}"' for t in titles), "max_results": top_k}
+    return {"search_query": f"all:{query}", "max_results": top_k}
+
 
 class ArxivSearchTool:
     name = "arxiv_search"
@@ -69,7 +103,7 @@ class ArxivSearchTool:
             await self._throttle()
             resp = await self._client.get(
                 ARXIV_API,
-                params={"search_query": f"all:{query}", "max_results": top_k},
+                params=build_search_params(query, top_k),
             )
             resp.raise_for_status()
             body = resp.text

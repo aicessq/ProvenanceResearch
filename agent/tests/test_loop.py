@@ -41,7 +41,7 @@ class ScriptLLM:
 
 
 class YesChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return True
 
 
@@ -75,7 +75,8 @@ def _executor(store: EvidenceStore) -> ToolExecutor:
     return ToolExecutor(tools=[kb])
 
 
-def _loop(planner: ScriptLLM, writer: ScriptLLM, store: EvidenceStore, budget: Budget | None = None) -> AgentLoop:
+def _loop(planner: ScriptLLM, writer: ScriptLLM, store: EvidenceStore, budget: Budget | None = None,
+          *, verification_feedback: bool = True) -> AgentLoop:
     return AgentLoop(
         planner=planner,
         writer=writer,
@@ -83,6 +84,7 @@ def _loop(planner: ScriptLLM, writer: ScriptLLM, store: EvidenceStore, budget: B
         store=store,
         gate=CitationGate(semantic_checker=YesChecker()),
         budget=budget,
+        verification_feedback=verification_feedback,
     )
 
 
@@ -407,3 +409,165 @@ def test_generate_calls_pass_llmmessage_instances() -> None:
     assert seen, "loop 未调用 generate"
     assert all(isinstance(m, LLMMessage) for m in seen), [type(m).__name__ for m in seen]
     assert all(m.role == "user" and isinstance(m.content, str) and m.content for m in seen)
+
+
+def test_partial_claims_yield_partial_answer_without_unsupported_text() -> None:
+    """v1 部分有据则部分回答：混合 claims 只发通过部分，无据表述不得混入答案。"""
+    store = EvidenceStore()
+    planner = ScriptLLM([PLAN_CALL, PLAN_DONE])
+
+    class MixedWriter(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            self.stages.append("generate")
+            cid = next((ev.citation_id for ev in store.all()), "KX")
+
+            class R:
+                pass
+
+            r = R()
+            r.text = json.dumps(
+                {
+                    "answer": "为保障网络安全而制定。据称 2099 年施行。",
+                    "claims": [
+                        {"claim": "为了保障网络安全而制定本法", "citations": [cid], "scope": "fulltext"},
+                        {"claim": "据称 2099 年施行", "citations": [cid], "scope": "fulltext"},  # 数字不在证据中 → 必被丢弃
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            r.prompt_tokens = 1
+            r.completion_tokens = 1
+            return r
+
+    writer = MixedWriter([])
+    loop = _loop(planner, writer, store, verification_feedback=False)
+    answer = asyncio.run(loop.run("网络安全法第一条讲了什么？"))
+    assert answer.status == "answered"
+    assert answer.partial is True
+    assert answer.claims == tuple(c for c in answer.claims if "2099" not in c.claim)
+    assert len(answer.claims) == 1
+    assert answer.claims[0].claim == "为了保障网络安全而制定本法"
+    assert "2099" not in answer.answer  # 被丢弃的无据表述不得出现在最终答案
+    assert answer.answer == f"为了保障网络安全而制定本法 [{answer.claims[0].citations[0]}]"  # 正文保留已核验断言与引用
+    assert writer.stages.count("generate") == 1  # 部分作答不触发重生成
+    partial_events = [t for t in answer.trace if t.get("type") == "partial_answer"]
+    assert len(partial_events) == 1
+    assert partial_events[0]["kept"] == 1
+
+
+def test_irrelevant_supported_claim_is_refused_and_question_reaches_checker() -> None:
+    """q042 型陷阱回归（2026-10-12）：被证据支撑但答非所问的 claim 不得作答；question 须传到语义复检。"""
+    from agent.citation_gate import CitationGate
+
+    store = EvidenceStore()
+    planner = ScriptLLM([PLAN_CALL, PLAN_DONE])
+    seen_questions: list[str] = []
+
+    class RelevanceChecker:
+        async def check(self, claim, evidence, question=""):
+            seen_questions.append(question)
+            return False  # 模拟新判据：支撑但答非所问 → 拒
+
+    class TrapWriter(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            self.stages.append("generate")
+            cid = next((ev.citation_id for ev in store.all()), "KX")
+
+            class R:
+                pass
+
+            r = R()
+            r.text = json.dumps(
+                {
+                    "answer": "应当指定个人信息保护负责人。",
+                    "claims": [{"claim": "应当指定个人信息保护负责人", "citations": [cid], "scope": "fulltext"}],
+                },
+                ensure_ascii=False,
+            )
+            r.prompt_tokens = 1
+            r.completion_tokens = 1
+            return r
+
+    loop = AgentLoop(
+        planner=planner,
+        writer=TrapWriter([]),
+        executor=_executor(store),
+        store=store,
+        gate=CitationGate(semantic_checker=RelevanceChecker()),
+    )
+    answer = asyncio.run(loop.run("“用户数量巨大”具体指多少用户？"))
+    assert answer.status == "refused"
+    assert answer.refusal_reason == "citation_gate_failed"
+    assert seen_questions and all(q == "“用户数量巨大”具体指多少用户？" for q in seen_questions)
+
+
+def test_writer_fenced_json_and_identity_visible() -> None:
+    """F7（2026-10-12）：```json 围栏输出不得白丢一轮；writer 证据载荷须带来源身份。"""
+    store = EvidenceStore()
+    planner = ScriptLLM([PLAN_CALL, PLAN_DONE])
+    seen_prompts: list[str] = []
+
+    class FencedWriter(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            self.stages.append("generate")
+            seen_prompts.append(messages[0].content)
+            cid = next((ev.citation_id for ev in store.all()), "KX")
+
+            class R:
+                pass
+
+            r = R()
+            inner = json.dumps(
+                {
+                    "answer": "为保障网络安全而制定。",
+                    "claims": [{"claim": "为了保障网络安全而制定本法", "citations": [cid], "scope": "fulltext"}],
+                },
+                ensure_ascii=False,
+            )
+            r.text = f"```json\n{inner}\n```"
+            r.prompt_tokens = 1
+            r.completion_tokens = 1
+            return r
+
+    loop = _loop(planner, FencedWriter([]), store)
+    answer = asyncio.run(loop.run("网络安全法第一条讲了什么？"))
+    assert answer.status == "answered"  # 围栏输出直接解析成功，未走重生成
+    assert len(seen_prompts) == 1
+    assert '"identity"' in seen_prompts[0] and "doc_id" in seen_prompts[0]  # 身份字段对 writer 可见
+
+
+def test_quote_assembly_copies_verbatim_and_drops_drifted() -> None:
+    """F9（2026-10-12）：逐字 quote 由流水线从证据原文复制进答案；带漂移的 quote 不采纳。"""
+    store = EvidenceStore()
+    planner = ScriptLLM([PLAN_CALL, PLAN_DONE])
+    verbatim = "第一条 为了保障网络安全，制定本法。"
+
+    class QuoteWriter(ScriptLLM):
+        async def generate(self, messages, metadata=None):
+            self.stages.append("generate")
+            cid = next((ev.citation_id for ev in store.all()), "KX")
+
+            class R:
+                pass
+
+            r = R()
+            r.text = json.dumps(
+                {
+                    "answer": "为保障网络安全而制定。",
+                    "claims": [
+                        {"claim": "为了保障网络安全而制定本法", "citations": [cid], "scope": "fulltext", "quote": verbatim},
+                        {"claim": "该法于 2099 年施行", "citations": [cid], "scope": "fulltext", "quote": "第一条 为了保障网络安全,制定本法。"},
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            r.prompt_tokens = 1
+            r.completion_tokens = 1
+            return r
+
+    loop = _loop(planner, QuoteWriter([]), store)
+    answer = asyncio.run(loop.run("网络安全法第一条讲了什么？"))
+    assert answer.status == "answered"
+    assert verbatim in answer.answer  # 逐字 quote 进答案（机械可命中）
+    assert "2099" not in answer.answer  # 无据 claim 被丢，其漂移 quote 也不进
+    assert answer.answer.count("第一条") == 1  # 漂移 quote（全角逗号差异）被剔除，不重复

@@ -1,11 +1,12 @@
-"""P4 三条对照流水线（A KB-only / B fixed mixed / C agentic）。
+"""P4 对照流水线（A KB-only / B fixed mixed / C agentic / D shared research graph）。
 
-对照公平性：三条线共用同一 AgentLoop 的 GENERATE→VERIFY 段（同一 writer 提示词、
+历史 A/B/C 共用同一 AgentLoop 的 GENERATE→VERIFY 段（同一 writer 提示词、
 Reader RRF、Citation Gate、预算），只变"证据怎么来"：
 
 - A：跑题前固定检索本地语料 top20 进 EvidenceStore，planner 恒停（无工具循环）。
 - B：固定混合——本地 top10 + web_search/arxiv_search 各调一次，planner 恒停。
-- C：Agentic——planner 走 LLM 有界循环，按需调 kb_search/web_search/arxiv_search。
+- C：旧 Agentic——planner 走 LLM 有界循环，按需调 kb_search/web_search/arxiv_search。
+- D：三段式共享生产研究图，使用相同模型、工具来源、预算和引用闸门。
 
 全部产出走 evidence.store 登记与引用闸门；检索排名（指标用）= 融合 top-8 截断前
 的 RRF 全序（agent.reader.fuse 的池规则，不截断）。
@@ -13,10 +14,13 @@ Reader RRF、Citation Gate、预算），只变"证据怎么来"：
 
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +36,14 @@ from tools.base import ToolMeta, ToolResult, validate_args  # noqa: E402
 
 from eval.corpus_search import CorpusIndex  # noqa: E402
 
-CONDITIONS = ("A", "B", "C")
+CONDITIONS = ("A", "B", "C", "D")
+
+
+def writer_payload(messages) -> dict:
+    # The legacy Writer appends the JSON to its prompt, the shared graph uses a JSON message.
+    content = messages[-1].content
+    _, marker, tail = content.partition('{"question"')
+    return json.loads(marker + tail) if marker else {}
 
 
 class UsageLLM:
@@ -44,8 +55,11 @@ class UsageLLM:
         self.completion_tokens = 0
         self.calls = 0
         self.reported_usage = True
+        self.writer_evidence: list[list[dict]] = []
 
     async def generate(self, messages, metadata=None):
+        if (metadata or {}).get("stage") == "generate":
+            self.writer_evidence.append(writer_payload(messages).get("evidence", []))
         self.calls += 1
         try:
             result = await self._inner.generate(messages, metadata)
@@ -120,6 +134,16 @@ class RunResult:
     evidence: list[dict] = field(default_factory=list)
     budget_report: dict = field(default_factory=dict)
     trace_types: list[str] = field(default_factory=list)
+    candidate_evidence: list[dict] = field(default_factory=list)
+    writer_evidence: list[list[dict]] = field(default_factory=list)
+    citation_checks: list[dict] = field(default_factory=list)
+    writer_diagnostics: list[dict] = field(default_factory=list)
+    scope_fallback: str = ""
+    model_stages: list[dict] = field(default_factory=list)
+    budget_rejections: list[dict] = field(default_factory=list)
+    search_summary: list[dict] = field(default_factory=list)
+    missing_questions: list[str] = field(default_factory=list)
+    partial: bool = False
     latency_ms: float = 0.0
     usage: dict = field(default_factory=dict)
     cost_unknown: bool = False
@@ -180,33 +204,18 @@ async def run_condition(
     started = time.perf_counter()
 
     try:
-        if condition == "A":
-            for hit in corpus.search(question_text, top_k=20):
-                corpus.build_evidence(hit, store, index_identity)
-            planner = StopPlanner()
-        elif condition == "B":
-            for hit in corpus.search(question_text, top_k=10):
-                corpus.build_evidence(hit, store, index_identity)
-            if executor is not None:
-                # 固定混合：外部两源各调一次；单源失败不取消健康源
-                await executor.execute("web_search", query=question_text, top_k=5)
-                await executor.execute("arxiv_search", query=question_text, top_k=5)
-            planner = StopPlanner()
-        else:  # C：证据全靠 Agent 有界循环
-            planner = llm
+        if condition == "D":
+            from researcher.deep_research_system.app.graphs.research_graph import run_research
 
-        gate = CitationGate(semantic_checker=checker)
-        loop = loop_factory(
-            planner=planner,
-            writer=llm,
-            executor=executor,
-            store=store,
-            gate=gate,
-            budget=budget,
-        )
-        answer = await loop.run(question_text)
+            runtime = SimpleNamespace(llm=llm, executor=executor, store=store, semantic_checker=checker)
+            answer = await run_research(question_text, runtime, budget)
+        else:
+            async with asyncio.timeout(max(0, budget.deadline_seconds - budget.elapsed())):
+                answer = await _run_legacy(condition, question_text, llm, checker, corpus, store, executor,
+                                           budget, index_identity, loop_factory)
 
-        ranked = fuse(_channels_of(store), output_top=10_000)  # 融合 top-8 截断前
+        ranked = fuse(_channels_of(store), output_top=10_000)
+
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
         usage = {}
         cost_unknown = False
@@ -224,7 +233,7 @@ async def run_condition(
             condition=condition,
             status=answer.status,
             answer_text=answer.answer,
-            claims=[{"claim": c.claim, "citations": list(c.citations), "scope": c.scope} for c in answer.claims],
+            claims=[{"claim": c.display_text, "citations": list(c.citations), "scope": c.scope} for c in answer.claims],
             citations=list(answer.citations),
             refusal_reason=answer.refusal_reason,
             stop_reason=getattr(answer.stop_reason, "value", str(answer.stop_reason)),
@@ -243,6 +252,22 @@ async def run_condition(
             ],
             budget_report=dict(answer.budget_report),
             trace_types=[t.get("type", "") for t in answer.trace],
+            candidate_evidence=[_evidence_ref(ev) for ev in store.all()],
+            writer_evidence=llm.writer_evidence if isinstance(llm, UsageLLM) else [],
+            citation_checks=[check for event in answer.trace if event["type"] == "citation"
+                             for check in event.get("checks", [])],
+            writer_diagnostics=[{"reason": event["reason"], "attempt": event["attempt"]}
+                                for event in answer.trace if event["type"] == "error"
+                                and event.get("stage") == "generate"],
+            scope_fallback=next((event["reason"] for event in answer.trace
+                                 if event["type"] == "plan" and event.get("action") == "scope_fallback"), ""),
+            model_stages=[{key: value for key, value in event.items() if key != "type"}
+                          for event in answer.trace if event["type"] == "token_delta"],
+            budget_rejections=[{key: value for key, value in event.items() if key != "type"}
+                               for event in answer.trace if event["type"] == "budget_check"],
+            search_summary=list(getattr(answer, "search_summary", ())),
+            missing_questions=list(getattr(answer, "missing_questions", ())),
+            partial=getattr(answer, "partial", False),
             latency_ms=latency_ms,
             usage=usage,
             cost_unknown=cost_unknown,
@@ -255,9 +280,46 @@ async def run_condition(
             question_id=question_id,
             condition=condition,
             status="error",
+            candidate_evidence=[_evidence_ref(ev) for ev in store.all()],
+            writer_evidence=llm.writer_evidence if isinstance(llm, UsageLLM) else [],
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
             error=f"{type(exc).__name__}: {exc}"[:200],
             usage=({"prompt_tokens": llm.prompt_tokens, "completion_tokens": llm.completion_tokens,
                     "llm_calls": llm.calls} if isinstance(llm, UsageLLM) else {}),
             cost_unknown=True,
         )
+
+
+async def _run_legacy(condition, question_text, llm, checker, corpus, store, executor, budget,
+                      index_identity, loop_factory):
+    if condition == "A":
+        for hit in corpus.search(question_text, top_k=20):
+            corpus.build_evidence(hit, store, index_identity)
+        planner = StopPlanner()
+    elif condition == "B":
+        if budget.remaining_tool_calls():
+            budget.charge_tool_call()
+            for hit in corpus.search(question_text, top_k=10):
+                corpus.build_evidence(hit, store, index_identity)
+        if executor is not None:
+            for name in ("web_search", "arxiv_search"):
+                remaining = budget.deadline_seconds - budget.elapsed()
+                if not budget.remaining_tool_calls() or remaining <= 0:
+                    break
+                budget.charge_tool_call()
+                async with asyncio.timeout(remaining):
+                    await executor.execute(name, query=question_text, top_k=5)
+        planner = StopPlanner()
+    else:  # C：证据全靠 Agent 有界循环
+        planner = llm
+
+    gate = CitationGate(semantic_checker=checker)
+    loop = loop_factory(
+        planner=planner,
+        writer=llm,
+        executor=executor,
+        store=store,
+        gate=gate,
+        budget=budget,
+    )
+    return await loop.run(question_text)

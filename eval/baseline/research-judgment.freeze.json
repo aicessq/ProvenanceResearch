@@ -1,0 +1,51 @@
+{
+  "freeze_version": "p4-research-judgment-v1-2026-11-24",
+  "frozen_at": "2026-11-24",
+  "assessment": "research_judgment_rubric",
+  "dataset": {
+    "questions_file": "eval/questions/research-judgment.v1.jsonl",
+    "questions_sha256": "9dfe68f6c9ec03aa28e5bd7144f4437ab518dff64e5ac0aba05e3f61256277e6",
+    "corpus_manifest": "eval/corpus/manifest.jsonl",
+    "corpus_manifest_sha256": "7c0e752fe4b44a72a722b82847b7349abb0cf24ecb3d81b19f979228764c9dfc",
+    "question_ids": [
+      "rj01",
+      "rj02",
+      "rj03"
+    ]
+  },
+  "conditions": {
+    "B": "fixed_mixed：本地 top10 + 外部(web/arXiv) top10 → RRF 融合 top8 → 生成 + 引用闸门（固定混合、无重规划）",
+    "D": "生产三段式 LangGraph：轻量定界 → 共享守卫的单一探索 Agent → 增量引用核验"
+  },
+  "runs_per_condition": 1,
+  "budget": {
+    "max_rounds": 6,
+    "max_tool_calls": 16,
+    "max_tokens": 32000,
+    "deadline_seconds": 240.0
+  },
+  "comparison_groups": {
+    "experimental_design": [
+      "rj01"
+    ],
+    "versioned_evidence_review": [
+      "rj02"
+    ],
+    "conditional_compliance_analysis": [
+      "rj03"
+    ]
+  },
+  "rubric": {
+    "scale": {
+      "0": "缺失或有关键错误",
+      "1": "部分覆盖或支撑不充分",
+      "2": "覆盖且有可核对依据"
+    },
+    "criteria": {
+      "evidence_coverage": "找到并定位影响结论的关键原始来源，说明覆盖范围和缺失来源。",
+      "claim_support": "引用能支持具体事实；区分来源报告的结果、推断和建议。",
+      "conflicts_and_gaps": "说明不可比较的条件、版本或适用范围差异、冲突和未知事实，以及如何补查。",
+      "actionability": "交付题目要求的实验、验收方案或决策树，写明行动条件及会改变结论的证据。"
+    }
+  }
+}

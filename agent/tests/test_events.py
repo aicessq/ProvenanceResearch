@@ -82,7 +82,7 @@ class AutoWriter(ScriptLLM):
 
 
 class YesChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return True
 
 

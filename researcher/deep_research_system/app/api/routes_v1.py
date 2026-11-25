@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from app.api.problem import V1Problem
 from app.schemas.agentic import (
     CancelTaskResponse,
+    ClarificationRequest,
     CreateTaskRequest,
     DeleteTaskResponse,
     TaskListView,
@@ -130,6 +131,17 @@ async def get_task(task_id: str) -> TaskView:
     if task is None:
         raise _task_not_found(task_id)
     return task
+
+
+@router.post("/tasks/{task_id}/clarification", dependencies=[Depends(rate_limit("query"))])
+async def clarify_task(task_id: str, request: ClarificationRequest) -> dict[str, str]:
+    service = await get_service()
+    result = await service.submit_clarification(task_id, request.round, request.answer)
+    if result == "not_found":
+        raise _task_not_found(task_id)
+    if result != "accepted":
+        raise V1Problem(status=409, code="clarification_not_pending", detail="任务当前没有等待这一轮补充")
+    return {"task_id": task_id, "status": result}
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=CancelTaskResponse)

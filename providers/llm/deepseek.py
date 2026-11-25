@@ -34,10 +34,13 @@ class DeepSeekLLMProvider:
         client: httpx.AsyncClient | None = None,
         extra_headers: Mapping[str, str] | None = None,
         provider_name: str = "deepseek",
+
+        reasoning_effort: str | None = None,
     ) -> None:
         self.provider_name = provider_name
         self._api_key = (api_key or "").strip()
         self._model = model
+        self._reasoning_effort = reasoning_effort
         self._base_url = (base_url or "").strip().rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._max_retries = max(0, max_retries)
@@ -61,6 +64,8 @@ class DeepSeekLLMProvider:
             "model": self._model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
         }
+        if self._reasoning_effort is not None:
+            payload["reasoning_effort"] = self._reasoning_effort
         if metadata:
             for key in ("temperature", "max_tokens"):
                 if key in metadata:
@@ -118,7 +123,11 @@ class DeepSeekLLMProvider:
     def _parse(self, resp: httpx.Response) -> LLMResult:
         try:
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            finish_reason = choice.get("finish_reason")
+            content = choice["message"]["content"]
+            if content is None and finish_reason == "length":
+                content = ""
             usage = data.get("usage") or {}
             if not isinstance(content, str):
                 raise TypeError("content 不是字符串")
@@ -134,6 +143,7 @@ class DeepSeekLLMProvider:
             model=str(data.get("model") or self._model),
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
+            finish_reason=finish_reason,
         )
 
     async def close(self) -> None:

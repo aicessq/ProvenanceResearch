@@ -32,7 +32,15 @@ export interface EvidenceView {
   };
 }
 
-export interface AnsweredOutcome {
+interface ResearchCoverage {
+  missing_questions?: string[];
+  covered_questions?: string[];
+  assumptions?: string[];
+  plan_changes?: { id: string; previous: string | null; question: string | null; reason: string }[];
+}
+
+export interface AnsweredOutcome extends ResearchCoverage {
+  partial?: boolean;
   status: "answered";
   text: string;
   claims: ClaimView[];
@@ -45,9 +53,14 @@ export interface AnsweredOutcome {
   limitations?: string[];
 }
 
-export interface RefusedOutcome {
+export interface RefusedOutcome extends ResearchCoverage {
+  searched_tools?: string[];
   status: "refused";
   refusal_reason: string;
+  refusal_detail?: string;
+  search_summary?: {
+    tool: string; status: string; query?: string; source_id?: string; error?: string; error_detail?: string;
+  }[];
   stop_reason: string;
   budget_report: Record<string, number>;
   evidence: EvidenceView[];

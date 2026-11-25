@@ -227,3 +227,35 @@ def test_compatible_vendor_identity_and_token_accounting():
             assert result.model == "agnes-3.0-flash"
             assert result.prompt_tokens + result.completion_tokens == 4
     asyncio.run(check())
+
+def test_reasoning_only_length_limit_preserves_returned_usage():
+    body = {
+        "choices": [{"finish_reason": "length", "message": {"content": None}}],
+        "usage": {"prompt_tokens": 80, "completion_tokens": 512},
+    }
+    provider = _provider(lambda _: httpx.Response(200, json=body))
+    result = asyncio.run(provider.generate(MESSAGES, {"max_tokens": 512}))
+    assert result.text == ""
+    assert result.finish_reason == "length"
+    assert (result.prompt_tokens, result.completion_tokens) == (80, 512)
+
+
+@pytest.mark.parametrize("effort", [None, "none"])
+def test_reasoning_effort_only_sent_when_configured(effort):
+    payloads = []
+
+    def handler(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json=_ok_body())
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            provider = DeepSeekLLMProvider(api_key="test", client=client, reasoning_effort=effort)
+            await provider.generate(MESSAGES, {"max_tokens": 32})
+
+    asyncio.run(scenario())
+    assert payloads[0]["max_tokens"] == 32
+    if effort is None:
+        assert "reasoning_effort" not in payloads[0]
+    else:
+        assert payloads[0]["reasoning_effort"] == effort

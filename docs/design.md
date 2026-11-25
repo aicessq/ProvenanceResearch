@@ -2,6 +2,7 @@
 
 > 更新：2026-09-18。本文件描述待实现的目标，不代表现有程序已经支持。
 > 保留 `knowledge_engine/` 和 `researcher/` 的独立进程与迁移测试，不重新生成两套业务代码。执行顺序及验收见 [roadmap.md](roadmap.md)，替代历史决策见 [decisions.md](decisions.md)。
+> 生产研究图的节点、回流条件和当前版本验收状态见 [实现走读](walkthrough.md)。
 
 ## 1. 产品与模块分工
 

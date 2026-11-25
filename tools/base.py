@@ -25,6 +25,7 @@ class ToolMeta:
     model_identity: str = ""
     usage: dict[str, int] = field(default_factory=dict)
     coverage: str = ""           # 摘要/全文/页范围等覆盖说明
+    cached: bool = False
 
 
 @dataclass(frozen=True)

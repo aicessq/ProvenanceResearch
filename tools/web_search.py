@@ -20,6 +20,13 @@ from tools.base import ToolError, ToolMeta, ToolResult, validate_args
 
 ALLOWED_ARGS = {"query": str, "top_k": int, "time_range": str}
 REQUIRED_ARGS = ("query",)
+TIME_RANGES = {"day", "week", "month", "year"}
+TIME_RANGE_ALIASES = {range_name[0]: range_name for range_name in TIME_RANGES}
+
+
+def normalize_time_range(value: str) -> str:
+    normalized = value.strip().lower()
+    return TIME_RANGE_ALIASES.get(normalized, normalized)
 
 
 class WebSearchTool:
@@ -61,11 +68,19 @@ class WebSearchTool:
 
         query = args["query"]
         top_k = int(args.get("top_k", 5))
+        time_range = normalize_time_range(args.get("time_range", ""))
+        if time_range and time_range not in TIME_RANGES:
+            return ToolResult(call_id=call_id, status="error",
+                              error=ToolError("invalid_params", "time_range 仅支持 day/week/month/year"),
+                              meta=ToolMeta(provider=self._provider))
+        payload = {"api_key": self._api_key, "query": query, "max_results": top_k}
+        if time_range:
+            payload["time_range"] = time_range
         started = time.perf_counter()
         try:
             resp = await self._client.post(
                 "https://api.tavily.com/search",
-                json={"api_key": self._api_key, "query": query, "max_results": top_k},
+                json=payload,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -88,7 +103,7 @@ class WebSearchTool:
         evidence: list[Evidence] = []
         for item in data.get("results", []) or []:
             url = str(item.get("url") or "")
-            snippet = str(item.get("content") or "")[:500]
+            snippet = str(item.get("content") or "")[:1600]
             provenance = Provenance(
                 provider=self._provider,
                 title=str(item.get("title") or ""),

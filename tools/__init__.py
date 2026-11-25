@@ -9,7 +9,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Protocol
+
+from evidence.registry import Discovery, Source, SourceRegistry, content_hash
 
 from tools.base import (
     ToolArgError,
@@ -34,7 +37,8 @@ class Tool(Protocol):
 class ToolExecutor:
     """白名单工具执行器。未注册工具名直接拒绝——模型不能调用任意函数。"""
 
-    def __init__(self, tools: list[Tool]) -> None:
+    def __init__(self, tools: list[Tool], *, registry: SourceRegistry | None = None) -> None:
+        self._registry = registry
         self._tools: dict[str, Tool] = {}
         for tool in tools:
             if tool.name in self._tools:
@@ -55,7 +59,31 @@ class ToolExecutor:
                 error=ToolError("tool_not_allowed", f"未注册工具: {name}"),
             )
         try:
-            return await tool.execute(call_id, **kwargs)
+            result = await tool.execute(call_id, **kwargs)
+            if self._registry is not None and name in ("web_search", "arxiv_search"):
+                for item in result.evidence:
+                    provenance = item.provenance
+                    if name == "arxiv_search" and provenance.arxiv_id and provenance.arxiv_version:
+                        url = f"https://arxiv.org/pdf/{provenance.arxiv_id}{provenance.arxiv_version}"
+                    else:
+                        url = provenance.canonical_url
+                    if not url:
+                        continue
+                    self._registry.register(Source(
+                        id=item.source_id, type=item.source_type, url=url,
+                        hash=content_hash(url), version=provenance.arxiv_version or "",
+                        metadata={
+                            "title": provenance.title,
+                            "arxiv_id": provenance.arxiv_id,
+                            "arxiv_version": provenance.arxiv_version,
+                            "fetched_at": provenance.fetched_at,
+                        },
+                        discovered_via=[Discovery(
+                            provider=provenance.provider, query=str(kwargs.get("query", "")),
+                            discovered_at=datetime.now(timezone.utc).isoformat(),
+                        )],
+                    ))
+            return result
         except ToolArgError as exc:
             return ToolResult(
                 call_id=call_id,

@@ -95,19 +95,19 @@ class AutoWriter(ScriptLLM):
 
 
 class YesChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return True
 
 
 class NoChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return False
 
 
 class SlowChecker:
     """卡住执行以便测试取消。"""
 
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         await asyncio.sleep(60)
 
 
@@ -444,6 +444,8 @@ class SplitLLM:
 
     async def generate(self, messages, metadata=None):
         stage = (metadata or {}).get("stage", "")
+        if stage == "scope":
+            return await ScriptLLM(['{}']).generate(messages, metadata)
         if stage == "plan":
             return await self._planner.generate(messages, metadata)
         return await self._writer.generate(messages, metadata)

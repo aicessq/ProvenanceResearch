@@ -2,9 +2,15 @@
 
 [![CI](https://github.com/aicessq/ProvenanceResearch/actions/workflows/ci.yml/badge.svg)](https://github.com/aicessq/ProvenanceResearch/actions/workflows/ci.yml)
 
-> Built an evidence-grounded Agentic RAG research system that autonomously expands retrieval across private knowledge bases, web sources and academic papers under explicit budget constraints. Every factual claim is verified against registered provenance evidence, with reproducible evaluation against non-agentic baselines.
+> Evidence-grounded Agentic RAG for private knowledge bases, web sources and academic papers. A shared research graph scopes questions, explores within budget, and verifies claims before publication.
 
-私库 + 网络 + 学术来源的 **证据可溯源 Agentic RAG** 研究系统：Agent 在显式预算（轮次/工具调用/token/deadline）内自主决定调用 `kb_search` / `web_search` / `arxiv_search` 等白名单工具，证据缺口驱动追加检索；每条事实性结论必须通过**引用闸门**（登记存在 → 范围覆盖 → 数字/专名字面 → 语义复检），否则如实拒答。回答结局（answered/refused）与任务生命周期（completed/failed/cancelled）严格分开。
+私库、网络与学术来源的 **证据可溯源 Agentic RAG** 研究系统。Agent 在共享的轮次、工具、token 和时限预算内检索与阅读原文。事实性断言经引用闸门核验后才能发布。部分有据时交付已核验内容并列出缺口。回答状态（`answered` / `refused`）与任务生命周期（`completed` / `failed` / `cancelled`）分开。
+
+## 当前 Agent Loop
+
+`/api/v1/tasks` 与兼容报告 API `/api/research` 共用一张 LangGraph。流程为 **定界 → 探索 → 草拟 → 核验 → 发布**。定界明确子问题与交付物，探索根据工具结果继续规划。核验发现断言待修或现有证据尚未组织成交付物时回到草拟，发现缺证且还有探索额度时回到原探索会话。
+
+2026-11-25 版本支持证据 ID 回读、补查材料回填、现行法规版本核验，以及用已核验断言编排报告。交付物覆盖检查会区分缺证和待综合的内容，并可凭可定位的相反依据撤回冲突断言。流程图、变更细节与评测状态见 [实现走读](docs/walkthrough.md)。
 
 ## 系统组成
 
@@ -12,10 +18,10 @@
 | --- | --- |
 | `providers/` | 云模型适配层：LLM/OCR/vision（一真一假）、错误六分类、EmbeddingIdentity |
 | `evidence/` + `tools/` | 统一 Evidence v2（来源身份/版本/范围）、五工具执行器（白名单+SSRF 防护） |
-| `agent/` | 有界 Agent Loop、Reader RRF、Citation Gate、预算硬边界 |
+| `agent/` | 共享预算、Reader RRF、引用闸门、评测使用的旧 AgentLoop |
 | `ingest/` | PDF/图像入库：native → OCR → vision 逐页回退，bbox/hash/图注关联到 citation |
 | `eval/` | P4 冻结评测：A KB-only / B 固定混合 / C Agentic 对照 + 指标 + 安全样例 |
-| `researcher/deep_research_system/` | 公共接口 `/api/v1`（任务生命周期 + 版本化 SSE + 云配置面 + JWT/限流/指标） |
+| `researcher/deep_research_system/` | 生产研究图、`/api/v1` 与兼容报告 API、SSE 和云配置 |
 | `frontend/` | 统一三栏界面：Conversation ｜ Evidence ｜ Task Timeline + 云服务设置 |
 | `knowledge_engine/` | 资产管理与 KB 检索子系统（迁移中；Celery ingest worker） |
 
@@ -34,7 +40,7 @@ docker compose up -d        # postgres + redis + qdrant + backend + worker + fro
 
 ## 三个失败案例（演示必看）
 
-1. **无证据拒答**——提问"IETF 计划什么时间发布 TLS 1.4？"：语料/网络都给不出可靠依据 → `answer.status=refused`（`requires_prediction`），任务仍 `completed`，时间线可见停止原因。
+1. **无证据拒答**——例如询问「IETF 计划何时发布 TLS 1.4？」。若找不到可发布的依据，`answer.status=refused`，任务仍为 `completed`，时间线可见停止原因。
 2. **来源冲突**——提问 2016 与 2025 版《网络安全法》条款对照（如"修改决定列为第几条"）：证据面板并列展示两个版本的原文页（`zh_cybersec_amend_2025` 与重新公布版），答案只引用各自版本的 citation，不同版本不误并。
 3. **provider failure**——断开 Tavily 或撤销密钥后提问外部题：时间线 `tool_result → error`（`provider_unavailable`，可重试标记），单源失败不拖垮健康来源；缺 LLM 配置则任务 `failed` + `config_missing`，绝不返回伪造答案。
 
@@ -47,10 +53,11 @@ docker compose up -d        # postgres + redis + qdrant + backend + worker + fro
 knowledge_engine/.venv/bin/python -m pytest providers/tests evidence/tests tools/tests agent/tests ingest/tests tests_bridge -q
 # researcher（含 /api/v1、SSE、云配置、JWT/限流/指标）
 cd researcher/deep_research_system && python -m pytest tests/ -q
-# P4 评测（fake=机械自检；live 需云凭证，结果含均值/95% CI）
-python3 eval/runner.py --mode fake --out eval/results/
+# 从仓库根目录用 researcher Python 环境运行三段式离线对照
+python -m eval.runner --mode fake --freeze eval/baseline/three-stage.freeze.json --runs 1 --out eval/results/
 ```
 
 - 设计与契约：[`docs/design.md`](docs/design.md) · 路线图与阶段验收：[`docs/roadmap.md`](docs/roadmap.md)
 - 决策记录（只追加）：[`docs/decisions.md`](docs/decisions.md) · 测试基线：[`docs/testing.md`](docs/testing.md)
 - P4 冻结件（题选/门槛/评分规则）：[`eval/baseline/round1.md`](eval/baseline/round1.md)
+- 三段式运行时对照（固定混合 B、旧循环 C、共享图 D）：[`eval/baseline/three-stage.freeze.json`](eval/baseline/three-stage.freeze.json)

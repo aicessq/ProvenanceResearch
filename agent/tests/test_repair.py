@@ -163,7 +163,7 @@ def test_late_read_fact_reaches_actual_semantic_verifier():
 
     class CheckWindow(ScriptLLM):
         async def generate(self, messages, metadata=None):
-            self._responses = ["yes" if fact in messages[0].content.split('"evidence":', 1)[1] else "no"]
+            self._responses = ["yes" if fact in json.loads(messages[-1].content)["evidence"][0]["text"] else "no"]
             return await super().generate(messages, metadata)
 
     planner = ScriptLLM([json.dumps({"tool_calls": [{"tool": "evidence_read", "args": {

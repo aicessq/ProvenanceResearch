@@ -10,6 +10,7 @@ RRF 与原始分另存（Score.rrf），不跨供应商比较原始分。
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from evidence.schema import Evidence, Score
@@ -20,6 +21,18 @@ EXTERNAL_WEIGHT = 0.7
 KB_POOL = 20
 EXTERNAL_POOL = 10
 OUTPUT_TOP = 8
+EXTERNAL_RESERVE = 3  # 外部证据保底席位（F6，2026-10-12）：有则必进，防 KB 存量活埋外部证据
+
+
+def official_rule_excerpt(text: str, limit: int) -> str:
+    """Keep an exact window around an applicability or counting clause when available."""
+    if len(text) <= limit:
+        return text
+    signal = re.search(r"不一致[^。；\n]{0,28}(?:适用|执行)|自[^。；\n]{0,22}(?:起)?累计", text)
+    if signal is None:
+        return text[:limit]
+    start = min(len(text) - limit, max(0, signal.start() - limit // 4))
+    return text[start:start + limit]
 
 
 def _dedupe_ranked(items: list[Evidence]) -> list[Evidence]:
@@ -65,8 +78,29 @@ def fuse(channels: dict[str, list[Evidence]], *, output_top: int = OUTPUT_TOP) -
         pool_by_id.values(),
         key=lambda ev: (-scores.get(ev.citation_id, 0.0), ev.citation_id),
     )
+
+    # 外部保底席位（F6，2026-10-12）：加权 RRF 下 KB 第 10 名（1/70≈0.0143）高于外部第 1 名
+    # （0.7/61≈0.0115），KB 池 ≥8 时纯 top-N 必然全 KB，外部证据被活埋（P4 外部源题全灭的最终根因）。
+    # 输出按组保底：外部（web/arxiv）有则至少占 EXTERNAL_RESERVE 席，其余给 KB；缺额互补；
+    # 组内与最终输出次序仍按 RRF 确定性。
+    ext_ids = {ev.citation_id for ev in external_pool}
+    kb_ranked = [ev for ev in ranked if ev.citation_id not in ext_ids]
+    ext_ranked = [ev for ev in ranked if ev.citation_id in ext_ids]
+    ext_take = min(len(ext_ranked), EXTERNAL_RESERVE, output_top)
+    kb_take = min(len(kb_ranked), output_top - ext_take)
+    chosen = ext_ranked[:ext_take] + kb_ranked[:kb_take]
+    if len(chosen) < output_top:
+        seen = {ev.citation_id for ev in chosen}
+        for ev in ranked:
+            if ev.citation_id not in seen:
+                chosen.append(ev)
+                seen.add(ev.citation_id)
+                if len(chosen) >= output_top:
+                    break
+    chosen.sort(key=lambda ev: (-scores.get(ev.citation_id, 0.0), ev.citation_id))
+
     result: list[Evidence] = []
-    for ev in ranked[:output_top]:
+    for ev in chosen[:output_top]:
         # 加权 RRF 已在 _rrf_scores 内完成（w/(k+rank) 累加），此处只记录
         result.append(
             replace(

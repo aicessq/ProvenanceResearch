@@ -21,8 +21,7 @@ import time
 from typing import Any, Callable
 
 from agent.budget import Budget, DEFAULT_DEADLINE_SECONDS, DEFAULT_MAX_ROUNDS, DEFAULT_MAX_MODEL_TOKENS, DEFAULT_MAX_TOOL_CALLS
-from agent.citation_gate import CitationGate
-from agent.loop import AgentLoop, SemanticVerifier
+from app.graphs.research_graph import Clarification, run_research
 from app.services.sse_v1 import InMemoryEventLog
 from app.services.task_state_store import TaskStatus
 from app.utils.ids import generate_id
@@ -133,7 +132,8 @@ def build_cloud_runtime() -> AgenticRuntime:
             ArxivSearchTool(store=store),
             SourceFetchTool(registry=registry, store=store),
             EvidenceReadTool(store=store),
-        ]
+        ],
+        registry=registry
     )
     return AgenticRuntime(llm=llm, executor=executor, store=store, budget=Budget())
 
@@ -152,6 +152,7 @@ class AgenticTaskService:
         self._event_log = event_log if event_log is not None else InMemoryEventLog()
         self._task_store = task_store
         self._tasks: dict[str, dict] = {}
+        self._clarifications: dict[str, Clarification] = {}
         self._running: dict[str, asyncio.Task] = {}
         self._initialized = False
 
@@ -250,6 +251,12 @@ class AgenticTaskService:
 
     # ---------- 任务执行 ----------
 
+    async def submit_clarification(self, task_id: str, round_number: int, answer: str) -> str:
+        if await self.get_task(task_id) is None:
+            return "not_found"
+        pending = self._clarifications.get(task_id)
+        return "accepted" if pending and pending.submit(round_number, answer) else "not_waiting"
+
     async def _run(self, task_id: str, query: str, overrides: dict[str, Any]) -> None:
         log = self._event_log
         record = self._tasks[task_id]
@@ -283,21 +290,8 @@ class AgenticTaskService:
                 return
             runtime.budget = budget  # 请求级预算覆盖运行时默认预算
 
-            checker = runtime.semantic_checker
-            if checker is None:
-                checker = SemanticVerifier(runtime.llm, budget=budget, on_event=sink)
-            gate = CitationGate(semantic_checker=checker)
-            loop = AgentLoop(
-                planner=runtime.llm,
-                writer=runtime.llm,
-                executor=runtime.executor,
-                store=runtime.store,
-                gate=gate,
-                budget=budget,
-                on_event=sink,
-            )
-
-            answer = await loop.run(query)
+            clarification = self._clarifications[task_id] = Clarification()
+            answer = await run_research(query, runtime, budget, on_event=sink, clarification=clarification)
             outcome = self._answer_outcome(answer)
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             outcome["latency_ms"] = latency_ms
@@ -322,6 +316,7 @@ class AgenticTaskService:
             logger.exception("agentic task %s failed", task_id)
             await self._finish_failed(task_id, "internal_error", f"{type(exc).__name__}: {exc}"[:200])
         finally:
+            self._clarifications.pop(task_id, None)
             self._running.pop(task_id, None)
 
     async def _finish_cancelled(self, task_id: str) -> None:
@@ -384,6 +379,10 @@ class AgenticTaskService:
         base = {
             "stop_reason": getattr(answer.stop_reason, "value", str(answer.stop_reason)),
             "budget_report": dict(answer.budget_report),
+            "missing_questions": list(answer.missing_questions),
+            "covered_questions": list(answer.covered_questions),
+            "assumptions": list(answer.assumptions),
+            "plan_changes": list(answer.plan_changes),
             "evidence": [dataclasses.asdict(ev) for ev in answer.evidence],
             "gaps": list(answer.gaps),
             "limitations": list(answer.limitations),
@@ -391,9 +390,10 @@ class AgenticTaskService:
         if answer.status == "answered":
             return {
                 "status": "answered",
+                "partial": answer.partial,
                 "text": answer.answer,
                 "claims": [
-                    {"claim": c.claim, "citations": list(c.citations), "scope": c.scope}
+                    {"claim": c.display_text, "citations": list(c.citations), "scope": c.scope}
                     for c in answer.claims
                 ],
                 "citations": list(answer.citations),
@@ -402,6 +402,11 @@ class AgenticTaskService:
         return {
             "status": "refused",
             "refusal_reason": answer.refusal_reason,
+            "refusal_detail": answer.refusal_detail,
+            "search_summary": list(answer.search_summary),
+            "searched_tools": list(dict.fromkeys(
+                event["tool"] for event in answer.trace if event["type"] == "tool_result"
+            )),
             **base,
         }
 

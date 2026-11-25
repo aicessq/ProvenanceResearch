@@ -149,6 +149,36 @@ def test_arxiv_search_maps_id_version_and_abstract_scope() -> None:
     assert ev.raw_text == "A provenance abstract."
 
 
+def test_arxiv_query_params_prefer_id_then_title_then_all() -> None:
+    """查询侧定位（2026-10-12 F2）：编号→id_list（含独立版本标记）、标题→ti 短语、否则 all: 全文。"""
+    from tools.arxiv_search import build_search_params
+
+    p = build_search_params("BERT 论文（arXiv 1810.04805）的全称是什么？", 5)
+    assert p == {"id_list": "1810.04805", "max_results": 5}
+    p2 = build_search_params("arXiv 2304.09848 的 v1 与 v2 差异？", 3)
+    assert p2 == {"id_list": "2304.09848v1,2304.09848v2", "max_results": 3}
+    assert build_search_params("2304.09848 v1", 1)["id_list"] == "2304.09848v1"
+    assert build_search_params("2304.09848v1 and v2", 2)["id_list"] == "2304.09848v1,2304.09848v2"
+    assert build_search_params("2304.09848v1 and 1810.04805", 2)["id_list"] == "2304.09848v1,1810.04805"
+    p3 = build_search_params("《Attention Is All You Need》提出了什么？", 5)
+    assert p3 == {"search_query": 'ti:"Attention Is All You Need"', "max_results": 5}
+    p4 = build_search_params("什么是注意力机制", 5)
+    assert p4 == {"search_query": "all:什么是注意力机制", "max_results": 5}
+
+
+def test_arxiv_search_sends_id_list_for_numbered_query() -> None:
+    seen: dict = {}
+
+    def handler(req):
+        seen.update(req.url.params)
+        return httpx.Response(200, text=ARXIV_FEED)
+
+    tool = ArxivSearchTool(client=_client(handler))
+    result = asyncio.run(tool.execute("c1", query="BERT 论文（arXiv 1810.04805）的全称"))
+    assert result.status == "ok"
+    assert seen.get("id_list") == "1810.04805"
+
+
 def test_arxiv_search_throttles_between_requests() -> None:
     sleeps: list[float] = []
 
@@ -358,3 +388,139 @@ def test_kb_search_missing_or_mixed_identity_fails_without_registering_evidence(
         assert result.status=="error" and result.error.code==code
         assert result.evidence==[]
         assert tool.store.all()==[]
+
+def test_registered_paper_versions_keep_text_and_page_identity_after_fetch():
+    import pymupdf
+
+    def make_pdf(label):
+        with pymupdf.open() as pdf:
+            pdf.new_page().insert_text((72, 72), label + " first page")
+            pdf.new_page().insert_text((72, 72), label + " second page")
+            return pdf.tobytes()
+
+    entry = ARXIV_FEED.split("<feed>")[1].split("</feed>")[0]
+    feed = ARXIV_FEED.replace("</feed>", entry.replace("2304.09848v1", "2304.09848v2") + "</feed>")
+    pdfs = {version: make_pdf(version) for version in ("v1", "v2")}
+    downloads = []
+
+    def handler(req):
+        if req.url.host == "export.arxiv.org":
+            return httpx.Response(200, text=feed)
+        downloads.append(req.url.path)
+        version = req.url.path[-2:]
+        return httpx.Response(200, content=pdfs[version], headers={"content-type": "application/pdf"})
+
+    async def scenario():
+        registry, store = SourceRegistry(), EvidenceStore()
+        async with _client(handler) as client:
+            executor = ToolExecutor([
+                ArxivSearchTool(client=client, store=store),
+                SourceFetchTool(registry=registry, client=client, store=store),
+                EvidenceReadTool(store=store),
+            ], registry=registry)
+            search = await executor.execute("arxiv_search", query="2304.09848 v1 v2")
+            assert len(search.evidence) == 2
+            for version, abstract in zip(("v1", "v2"), search.evidence):
+                fetched = await executor.execute("source_fetch", source_id=abstract.citation_id)
+                assert [ev.locator.page for ev in fetched.evidence] == [1, 2]
+                cached = await executor.execute("source_fetch", source_id=abstract.source_id)
+                assert cached.meta.cached
+                read = await executor.execute("evidence_read", source_id=abstract.source_id, page=2)
+                assert read.evidence[0].raw_text == version + " second page"
+                assert read.evidence[0].provenance.arxiv_version == version
+                assert read.evidence[0].content_scope == "fulltext"
+            blocked = await executor.execute("source_fetch", source_id="https://arxiv.org/abs/2304.09848v3")
+            assert blocked.error.code == "source_not_registered"
+            assert downloads == ["/pdf/2304.09848v1", "/pdf/2304.09848v2"]
+            assert len({ev.citation_id for ev in store.all()}) == 6
+
+    asyncio.run(scenario())
+
+
+def test_failed_paper_parse_keeps_only_registered_abstract():
+    def handler(req):
+        if req.url.host == "export.arxiv.org":
+            return httpx.Response(200, text=ARXIV_FEED)
+        return httpx.Response(200, content=b"not a pdf", headers={"content-type": "application/pdf"})
+
+    async def scenario():
+        registry, store = SourceRegistry(), EvidenceStore()
+        async with _client(handler) as client:
+            executor = ToolExecutor([
+                ArxivSearchTool(client=client, store=store),
+                SourceFetchTool(registry=registry, client=client, store=store),
+            ], registry=registry)
+            search = await executor.execute("arxiv_search", query="2304.09848 v1")
+            fetched = await executor.execute("source_fetch", source_id=search.evidence[0].source_id)
+            assert fetched.status == "error"
+            assert fetched.error.code == "fetch_blocked"
+            assert store.all() == search.evidence
+            assert store.all()[0].content_scope == "abstract"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_same_address_reuses_fetch_without_collapsing_source_identity(available):
+    import pymupdf
+
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Paper version two.")
+        body = pdf.tobytes()
+
+    async def scenario():
+        url = "https://arxiv.org/pdf/2304.09848v2"
+        registry = _registry_with_source(url)
+        registry.register(Source(
+            id="paper:arxiv:2304.09848:v2", type="paper", url=url + "#page=1",
+            hash=content_hash(url), version="v2",
+            metadata={"arxiv_id": "2304.09848", "arxiv_version": "v2"},
+        ))
+        calls = []
+
+        async def handler(request):
+            calls.append(request.url)
+            await asyncio.sleep(0)
+            if not available:
+                return httpx.Response(503)
+            return httpx.Response(200, content=body, headers={"content-type": "application/pdf"})
+
+        async with _client(handler) as client:
+            tool = SourceFetchTool(registry=registry, client=client)
+            web, paper = await asyncio.gather(
+                tool.execute("web", source_id="web:example"),
+                tool.execute("paper", source_id="paper:arxiv:2304.09848:v2"),
+            )
+        assert len(calls) == 1
+        assert sum(item.meta.cached for item in (web, paper)) == 1
+        if available:
+            assert web.evidence[0].source_type == "web"
+            assert paper.evidence[0].provenance.arxiv_version == "v2"
+            assert paper.evidence[0].locator.page == 1
+            assert web.evidence[0].citation_id != paper.evidence[0].citation_id
+        else:
+            assert web.error.code == paper.error.code == "provider_unavailable"
+
+    asyncio.run(scenario())
+
+
+def test_source_fetch_resolves_only_exact_task_registered_urls():
+    registry = _registry_with_source("https://example.org/registered")
+    requests = []
+
+    def handler(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, text="<p>Registered source text</p>",
+                              headers={"content-type": "text/html"})
+
+    async def scenario():
+        async with _client(handler) as client:
+            tool = SourceFetchTool(registry=registry, client=client)
+            fetched = await tool.execute("known", source_id="https://example.org/registered")
+            blocked = await tool.execute("unknown", source_id="https://example.org/unregistered")
+        assert fetched.evidence[0].source_id == "web:example"
+        assert fetched.evidence[0].raw_text == "Registered source text"
+        assert blocked.error.code == "source_not_registered"
+        assert requests == ["https://example.org/registered"]
+
+    asyncio.run(scenario())

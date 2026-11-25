@@ -127,14 +127,25 @@ def main() -> int:
             if mirror_rows:
                 blanks = sum(1 for r in mirror_rows if len(str(r.get("text", "")).strip()) < 20)
                 ratio = blanks / len(mirror_rows)
-                if not row["text_layer_ok"] and ratio < SCAN_BLANK_THRESHOLD:
-                    failures.append(
-                        f"{doc_id}: 标记 text_layer_ok=false 但实测空页比例 {ratio:.2f}，疑似标记被误改"
-                    )
-                if row["text_layer_ok"] and ratio >= SCAN_BLANK_THRESHOLD:
-                    failures.append(
-                        f"{doc_id}: 标记 text_layer_ok=true 但实测空页比例 {ratio:.2f}，疑似扫描件被标为有文本层"
-                    )
+                text_source = str(row.get("text_source") or "native")
+                if text_source not in ("native", "ocr"):
+                    failures.append(f"{doc_id}: text_source 非法（{text_source!r}，只允许 native/ocr）")
+                elif text_source == "ocr":
+                    # OCR 补录条目：text_layer_ok 须如实反映 PDF 原生层（扫描件确实无文本层），
+                    # 镜像应被 OCR 填满——两者同时约束，防止"假标记"两个方向
+                    if row["text_layer_ok"]:
+                        failures.append(f"{doc_id}: text_source=ocr 但 text_layer_ok=true（PDF 原生层声明失真）")
+                    if ratio >= SCAN_BLANK_THRESHOLD:
+                        failures.append(f"{doc_id}: text_source=ocr 但实测空页比例 {ratio:.2f}，OCR 镜像疑似未补录")
+                else:
+                    if not row["text_layer_ok"] and ratio < SCAN_BLANK_THRESHOLD:
+                        failures.append(
+                            f"{doc_id}: 标记 text_layer_ok=false 但实测空页比例 {ratio:.2f}，疑似标记被误改"
+                        )
+                    if row["text_layer_ok"] and ratio >= SCAN_BLANK_THRESHOLD:
+                        failures.append(
+                            f"{doc_id}: 标记 text_layer_ok=true 但实测空页比例 {ratio:.2f}，疑似扫描件被标为有文本层"
+                        )
         elif row["in_repo"]:
             failures.append(f"{doc_id}: in_repo=true 但页级镜像缺失 {mirror_rel}")
 

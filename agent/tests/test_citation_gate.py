@@ -10,12 +10,12 @@ from evidence.schema import Evidence, Extraction, Locator, Provenance
 
 
 class YesChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return True
 
 
 class NoChecker:
-    async def check(self, claim, evidence):
+    async def check(self, claim, evidence, question: str = ""):
         return False
 
 
@@ -58,6 +58,47 @@ def test_gate_rejects_unregistered_citation() -> None:
     report = asyncio.run(gate.verify([Claim("结论", ("Kmissing",))], store))
     assert not report.passed
     assert "未登记" in report.failed_claims[0].reason
+
+
+def test_gate_accepts_identity_numbers_from_provenance() -> None:
+    """q026/q028 型（2026-10-12 F1）：编号类事实由登记身份承载，正文不含自身编号不误拒；凭空数字仍拒。"""
+    from evidence.schema import Provenance
+
+    gate = CitationGate(semantic_checker=YesChecker())
+    store = EvidenceStore()
+    prov = Provenance(
+        provider="arxiv",
+        title="Attention Is All You Need",
+        content_hash="h",
+        arxiv_id="1706.03762",
+        arxiv_version="v7",
+        fulltext_url="http://arxiv.org/abs/1706.03762v7",
+    )
+    ev = Evidence(
+        citation_id="",
+        source_id="paper:arxiv:1706.03762:v7",
+        source_type="paper",
+        modality="text",
+        content_scope="abstract",
+        raw_text="We propose a new simple network architecture, the Transformer.",
+        provenance=prov,
+        locator=Locator(url="http://arxiv.org/abs/1706.03762v7"),
+        extraction=Extraction(method="provider_text", provider="arxiv"),
+    )
+    cid = register_with_computed_id(store, ev).citation_id
+    report = asyncio.run(
+        gate.verify([Claim("该论文的 arXiv 编号是 1706.03762", (cid,), scope="abstract")], store)
+    )
+    assert report.passed, [c.reason for c in report.failed_claims]
+    report2 = asyncio.run(gate.verify([Claim("该论文共有 99999 页", (cid,), scope="abstract")], store))
+    assert not report2.passed
+
+
+def test_parse_claims_tolerates_markdown_fences() -> None:
+    """LLM 常把 JSON 包在 ```json 围栏里——白丢一轮重生成的教训（2026-10-12 F7）。"""
+    fenced = '```json\n{"claims": [{"claim": "x", "citations": ["K1"], "scope": "fulltext"}]}\n```'
+    claims = parse_claims(fenced)
+    assert claims[0].claim == "x"
 
 
 def test_gate_scope_must_cover_claim() -> None:

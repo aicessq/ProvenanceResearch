@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from agent.budget import (
     DEFAULT_DEADLINE_SECONDS,
@@ -40,17 +40,30 @@ class CreateTaskRequest(BaseModel):
     options: TaskBudgetOptions | None = Field(default=None, description="预算覆盖；缺省用默认预算")
 
 
+class ClarificationRequest(BaseModel):
+    round: int = Field(ge=1, le=2)
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+
+
 class ClaimView(BaseModel):
     claim: str
     citations: list[str]
     scope: Literal["snippet", "abstract", "fulltext", "region"]
 
 
-class AnsweredOutcome(BaseModel):
+class ResearchCoverage(BaseModel):
+    missing_questions: list[str] = Field(default_factory=list)
+    covered_questions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    plan_changes: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AnsweredOutcome(ResearchCoverage):
     """回答结局=已回答：文本与逐条 claims 均经引用闸门验证。"""
 
     status: Literal["answered"] = "answered"
     text: str
+    partial: bool = False
     claims: list[ClaimView]
     citations: list[str]
     stop_reason: str
@@ -61,11 +74,14 @@ class AnsweredOutcome(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
-class RefusedOutcome(BaseModel):
+class RefusedOutcome(ResearchCoverage):
     """回答结局=拒答：无登记证据/引用闸门未过/预算耗尽等，附明确原因。"""
 
     status: Literal["refused"] = "refused"
     refusal_reason: str
+    refusal_detail: str = ""
+    search_summary: list[dict[str, str]] = Field(default_factory=list)
+    searched_tools: list[str] = Field(default_factory=list)
     stop_reason: str
     budget_report: dict[str, Any]
     evidence: list[dict[str, Any]]

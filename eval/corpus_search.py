@@ -1,4 +1,4 @@
-"""eval 本地确定性检索基线（retriever: local-bigram-v1）。
+"""eval 本地确定性检索基线。
 
 对 `eval/corpus/text/*.pages.jsonl` 页文本做确定性词面打分（字符 bigram 覆盖 +
 《标题》/条文号短语加成），不使用 embedding（embedding 是云能力；design.md 允许
@@ -25,13 +25,14 @@ from evidence.registry import content_hash  # noqa: E402
 from evidence.schema import Evidence, Extraction, Locator, Provenance, Score  # noqa: E402
 from evidence.store import register_with_computed_id  # noqa: E402
 
-RETRIEVER_VERSION = "local-bigram-v1"
+RETRIEVER_VERSION = "local-bigram-v3"
 
 _FULLWIDTH_MAP = {ord(c): ord(c) - 0xFEE0 for c in "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"}
 _FULLWIDTH_MAP[ord("　")] = ord(" ")
 
 _TITLE_RE = re.compile(r"《([^《》]{2,})》")
 _CLAUSE_RE = re.compile(r"第[一二三四五六七八九十百千0-9]+条")
+_ARXIV_REF_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:\s*(v\d+))?(?!\d)", re.IGNORECASE)
 
 
 def normalize(text: str) -> str:
@@ -69,6 +70,7 @@ class CorpusIndex:
         self._titles: dict[str, str] = {}
         self._langs: dict[str, str] = {}
         self._versions: dict[str, str] = {}
+        self._papers: dict[str, tuple[str, str, str]] = {}
         self._pages: list[tuple[str, int, str, str]] = []  # (doc_id, page, norm_text, raw_text)
         self._load()
 
@@ -81,6 +83,13 @@ class CorpusIndex:
             self._titles[doc_id] = item.get("title") or doc_id
             self._langs[doc_id] = item.get("lang") or ""
             self._versions[doc_id] = (item.get("sha256") or "")[:12]
+            source_url = item.get("source_url") or ""
+            arxiv_ref = _ARXIV_REF_RE.search(source_url) if item.get("category") == "arxiv" else None
+            if arxiv_ref:
+                title = re.sub(r"\s*\(v\d+\)$", "", self._titles[doc_id], flags=re.IGNORECASE)
+                words = re.findall(r"[a-z0-9]+", title.lower())
+                prefix = " ".join(words[:7]) if len(words) >= 5 else ""
+                self._papers[doc_id] = (arxiv_ref[1], (arxiv_ref[2] or "").lower(), prefix)
         for path in sorted((self._dir / "text").glob("*.pages.jsonl")):
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
@@ -98,16 +107,31 @@ class CorpusIndex:
         return dict(self._versions)
 
     def search(self, query: str, top_k: int = 20) -> list[CorpusHit]:
-        """确定性打分：bigram 覆盖 + 《标题》命中 + 条文号命中；分数并列按 doc_id,page 定序。"""
+        """先排明确点名的论文，其余按字面与条文命中排序。"""
         norm_query = normalize(query)
         if not norm_query:
             return []
         q_bigrams = set(_bigrams(norm_query))
         titles = [normalize(t) for t in _TITLE_RE.findall(query)]
         clauses = [normalize(c) for c in _CLAUSE_RE.findall(query)]
+        # 数字 ID（arXiv 号等）：正文/文档 ID 含查询中的编号即强命中——中文问题对英文页的
+        # 字符 bigram 打不中，但编号是跨语言可靠信号（q038 型场景）
+        q_ids = set(re.findall(r"\d{4}\.\d{4,5}", norm_query))
         phrase = norm_query
+        paper_refs = {(match[1], match[2].lower() if match[2] else "") for match in _ARXIV_REF_RE.finditer(query)}
+        query_words = " " + " ".join(re.findall(r"[a-z0-9]+", query.lower())) + " "
+        named_papers = set()
+        for doc_id, (number, version, title_prefix) in self._papers.items():
+            versions = {ref_version for ref_number, ref_version in paper_refs if ref_number == number}
+            if versions - {""}:
+                if version in versions:
+                    named_papers.add(doc_id)
+            elif versions:
+                named_papers.add(doc_id)
+            elif title_prefix and f" {title_prefix} " in query_words:
+                named_papers.add(doc_id)
 
-        scored: list[tuple[float, str, int]] = []
+        scored: list[tuple[bool, float, str, int]] = []
         for doc_id, page, norm_text, _raw in self._pages:
             hits = sum(1 for bg in q_bigrams if bg in norm_text)
             score = float(hits)
@@ -119,13 +143,16 @@ class CorpusIndex:
             for clause in clauses:
                 if clause and clause in norm_text:
                     score += 4.0
-            if score > 0:
-                scored.append((score, doc_id, page))
+            for qid in q_ids:
+                if qid in norm_text or qid in doc_id:
+                    score += 8.0
+            if score > 0 or doc_id in named_papers:
+                scored.append((doc_id in named_papers, score, doc_id, page))
 
-        scored.sort(key=lambda x: (-x[0], x[1], x[2]))
+        scored.sort(key=lambda x: (not x[0], -x[1], x[2], x[3]))
         by_key = {(doc_id, page): (norm, raw) for doc_id, page, norm, raw in self._pages}
         hits: list[CorpusHit] = []
-        for score, doc_id, page in scored[:top_k]:
+        for _named, score, doc_id, page in scored[:top_k]:
             norm, raw = by_key[(doc_id, page)]
             hits.append(
                 CorpusHit(

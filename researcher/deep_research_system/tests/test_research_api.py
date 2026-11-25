@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 
 from fastapi.testclient import TestClient
 
 from app.api import routes_research
 from app.services.research_service import DeleteTaskResult
 from main import create_application
+from .test_hardening import auth_env
+from .test_research_service import build_service
 
 
 class StubResearchService:
@@ -47,7 +51,7 @@ class StubResearchService:
     def unsubscribe(self, task_id: str, queue: asyncio.Queue) -> None:
         return None
 
-    def cancel_task(self, task_id: str) -> bool:
+    async def cancel_task(self, task_id: str) -> bool:
         return task_id == self.task["task_id"]
 
     async def delete_task(self, task_id: str):
@@ -137,3 +141,36 @@ def test_research_stream_closes_on_error(monkeypatch) -> None:
 
     assert '"type": "state"' in payload
     assert '"type": "error"' in payload
+
+
+def test_authenticated_legacy_api_completes_real_graph_and_replays_terminal(monkeypatch):
+    auth_env(monkeypatch)
+    service, _ = build_service()
+    monkeypatch.setattr(routes_research, "_service", service)
+
+    with TestClient(create_application()) as client:
+        path = "/api/research"
+        payload = {"query": "网络安全法为何制定？"}
+        assert client.post(path, json=payload).status_code == 401
+        token = client.post("/api/v1/auth/token", json={
+            "username": "admin", "password": "correct-horse",
+        }).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post(path, headers=headers, json=payload)
+        assert response.status_code == 200
+        task_id = response.json()["data"]["task_id"]
+        task_path = f"{path}/{task_id}"
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            view = client.get(task_path, headers=headers).json()["data"]
+            if view["status"] != "running":
+                break
+            time.sleep(0.01)
+        assert view["status"] == "completed"
+        report = view["result"]["report"]
+        assert report["title"] == payload["query"]
+        assert report["sections"][0]["citations"]
+        with client.stream("GET", task_path + "/stream", headers=headers) as response:
+            events = [json.loads(line[6:]) for line in response.iter_lines() if line.startswith("data: ")]
+        assert [event["type"] for event in events] == ["state", "done"]
+        assert events[-1]["result"]["report"] == report

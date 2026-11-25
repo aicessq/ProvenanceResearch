@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from functools import partial
 import hashlib
@@ -18,6 +19,7 @@ import random
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import types
 import uuid
 import httpx
@@ -39,9 +41,29 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def text_fingerprint() -> str:
-    return digest(b"".join(p.name.encode() + b"\0" + p.read_bytes().replace(b"\r\n", b"\n")
-                           for p in sorted((ROOT / "eval/corpus/text").glob("*.pages.jsonl"))))
+@contextmanager
+def frozen_corpus(config: dict, base: dict):
+    revision = config["reference_revision"]
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise ValueError("reference_revision 必须为完整固定提交 SHA")
+    prefix = "eval/corpus"
+    paths = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", revision, "--", f"{prefix}/text"], cwd=ROOT, text=True
+    ).splitlines()
+    with TemporaryDirectory(prefix="provenance-frozen-corpus-") as directory:
+        corpus = Path(directory)
+        (corpus / "text").mkdir()
+        for path in [f"{prefix}/manifest.jsonl", *paths]:
+            content = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=ROOT)
+            (corpus / Path(path).relative_to(prefix)).write_bytes(content)
+        verify_freeze(base, corpus_manifest=corpus / "manifest.jsonl")
+        fingerprint = digest(b"".join(
+            p.name.encode() + b"\0" + p.read_bytes().replace(b"\r\n", b"\n")
+            for p in sorted((corpus / "text").glob("*.pages.jsonl"))
+        ))
+        if fingerprint != config["corpus_text_sha256"]:
+            raise ValueError("页级文本指纹不符")
+        yield corpus
 
 
 def reference_module(config: dict):
@@ -67,9 +89,8 @@ def load_config(path: Path) -> tuple[dict, dict]:
     if digest(base_path.read_bytes().replace(b"\r\n", b"\n")) != config["base_freeze_sha256"]:
         raise ValueError("基础冻结件指纹不符")
     base = json.loads(base_path.read_text(encoding="utf-8"))
-    verify_freeze(base)
-    if text_fingerprint() != config["corpus_text_sha256"]:
-        raise ValueError("页级文本指纹不符")
+    with frozen_corpus(config, base):
+        pass
     if config["budget"] != base["budget"]:
         raise ValueError("对照预算必须等于原冻结预算")
     if set(config["variants"]) != {"baseline", "gaps", "feedback"}:
@@ -136,7 +157,8 @@ async def compare(config: dict, base: dict, *, mode: str, runs: int) -> dict:
     if mode == "live":
         require_live_config(["C"])  # 先验配置/授权；不因导入旧 loop 绕过生产出站门。
     reference = reference_module(config)
-    corpus = CorpusIndex(ROOT / "eval/corpus")
+    with frozen_corpus(config, base) as corpus_dir:
+        corpus = CorpusIndex(corpus_dir)
     questions = load_questions(base)
     factories = {"baseline": reference.AgentLoop,
                  "gaps": partial(AgentLoop, verification_feedback=False), "feedback": AgentLoop}

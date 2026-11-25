@@ -1,4 +1,4 @@
-/** /api/v1 客户端：任务生命周期 + SSE v1（EventSource 自动携带 Last-Event-ID 续传）。 */
+/** /api/v1 客户端：任务生命周期 + SSE v1（支持 Last-Event-ID 续传）。 */
 
 import { ref } from "vue";
 import type { Problem, SseEvent, TaskList, TaskView } from "./types";
@@ -36,6 +36,11 @@ export const api = {
   getTask: (taskId: string) => request<TaskView>(`/api/v1/tasks/${encodeURIComponent(taskId)}`),
   createTask: (query: string) =>
     request<TaskView>("/api/v1/tasks", { method: "POST", body: JSON.stringify({ query }) }),
+  clarifyTask: (taskId: string, round: number, answer: string) =>
+    request<{ task_id: string; status: string }>(`/api/v1/tasks/${encodeURIComponent(taskId)}/clarification`, {
+      method: "POST",
+      body: JSON.stringify({ round, answer }),
+    }),
   cancelTask: (taskId: string) =>
     request<{ task_id: string; status: string }>(`/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {
       method: "POST",
@@ -52,52 +57,66 @@ export interface StreamHandlers {
   onOpen?: () => void;
 }
 
-/** 打开任务 SSE 流。返回 close()；done/error(fatal) 终态自动收流。 */
+/** 使用同一 Bearer 认证打开任务事件流，断线时从最后的事件 ID 续传。 */
 export function openTaskStream(taskId: string, handlers: StreamHandlers): () => void {
-  const source = new EventSource(`/api/v1/tasks/${encodeURIComponent(taskId)}/events`);
-  const types = [
-    "meta",
-    "plan",
-    "tool_call",
-    "tool_result",
-    "source_status",
-    "evidence",
-    "token_delta",
-    "citation",
-    "done",
-    "error",
-  ] as const;
+  const controller = new AbortController();
+  const path = `/api/v1/tasks/${encodeURIComponent(taskId)}/events`;
+  let lastEventId = "";
+  let reconnect: ReturnType<typeof setTimeout> | undefined;
 
-  const finish = () => source.close();
-  let closed = false;
-  const close = () => {
-    closed = true;
-    source.close();
-  };
-
-  source.onopen = () => handlers.onOpen?.();
-  source.onerror = () => {
-    // EventSource 断线会自动带 Last-Event-ID 重连；只有显式关闭后才报错
-    if (!closed) handlers.onError("连接中断，正在用 Last-Event-ID 重连续传…");
-  };
-
-  for (const type of types) {
-    source.addEventListener(type, (raw) => {
-      const message = raw as MessageEvent;
-      try {
-        const event = JSON.parse(message.data) as SseEvent;
-        handlers.onEvent(event);
-        const payload = event.payload as { fatal?: boolean };
-        if (event.type === "done" || (event.type === "error" && payload.fatal === true)) {
-          finish();
-        }
-      } catch {
-        handlers.onError("事件解析失败");
+  async function connect() {
+    const headers: Record<string, string> = { Accept: "text/event-stream" };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+    try {
+      const response = await fetch(path, { headers, signal: controller.signal });
+      if (!response.ok || !response.body) {
+        if (response.status === 401) authRequired.value = true;
+        handlers.onError(`事件流连接失败（${response.status}）`);
+        if (response.status >= 500) scheduleReconnect();
+        return;
       }
-    });
+      handlers.onOpen?.();
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      try {
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            boundary = buffer.indexOf("\n\n");
+            const data = block.split("\n").filter((line) => line.startsWith("data:"));
+            if (!data.length) continue;
+            const event = JSON.parse(data.map((line) => line.slice(5).trimStart()).join("\n")) as SseEvent;
+            lastEventId = event.event_id;
+            handlers.onEvent(event);
+            if (event.type === "done" || (event.type === "error" && event.payload.fatal === true)) return;
+          }
+        }
+      } finally {
+        await reader.cancel();
+      }
+    } catch {
+      if (controller.signal.aborted) return;
+    }
+    scheduleReconnect();
   }
 
-  return close;
+  function scheduleReconnect() {
+    if (controller.signal.aborted) return;
+    handlers.onError("连接中断，正在从上次收到的事件继续…");
+    reconnect = setTimeout(() => void connect(), 1000);
+  }
+
+  void connect();
+  return () => {
+    controller.abort();
+    clearTimeout(reconnect);
+  };
 }
 
 /** ---- 云服务配置（凭证只写不读；GET 仅回 configured/missing） ---- */

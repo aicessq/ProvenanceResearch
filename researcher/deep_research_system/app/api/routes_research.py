@@ -3,15 +3,17 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.api.routes_v1 import rate_limit, require_auth
 from app.core.errors import TaskNotFoundError
+from app.schemas.agentic import ClarificationRequest
 from app.schemas.response import success_response
 from app.schemas.task import ResearchRequest
 from app.services.research_service import DeleteTaskResult, ResearchService
 
-router = APIRouter(tags=["research"])
+router = APIRouter(tags=["research"], dependencies=[Depends(require_auth), Depends(rate_limit("default"))])
 
 _service: ResearchService | None = None
 
@@ -24,7 +26,7 @@ async def get_service() -> ResearchService:
     return _service
 
 
-@router.post("/research")
+@router.post("/research", dependencies=[Depends(rate_limit("query"))])
 async def create_research(request: ResearchRequest):
     service = await get_service()
     data = request.model_dump()
@@ -33,7 +35,7 @@ async def create_research(request: ResearchRequest):
     return success_response(task)
 
 
-@router.post("/research/sync")
+@router.post("/research/sync", dependencies=[Depends(rate_limit("query"))])
 async def create_research_sync(request: ResearchRequest):
     service = await get_service()
     data = request.model_dump()
@@ -57,10 +59,21 @@ async def get_research(task_id: str):
     return success_response(task)
 
 
+@router.post("/research/{task_id}/clarification", dependencies=[Depends(rate_limit("query"))])
+async def clarify_research(task_id: str, request: ClarificationRequest):
+    service = await get_service()
+    result = await service.submit_clarification(task_id, request.round, request.answer)
+    if result == "not_found":
+        raise TaskNotFoundError(task_id)
+    if result != "accepted":
+        raise HTTPException(status_code=409, detail="任务当前没有等待这一轮补充")
+    return success_response({"task_id": task_id, "status": result})
+
+
 @router.post("/research/{task_id}/cancel")
 async def cancel_research(task_id: str):
     service = await get_service()
-    success = service.cancel_task(task_id)
+    success = await service.cancel_task(task_id)
     if not success:
         raise TaskNotFoundError(task_id)
     return success_response({"task_id": task_id, "status": "cancelled"})
@@ -87,8 +100,19 @@ async def stream_research(task_id: str):
     async def event_generator():
         queue = service.subscribe(task_id)
         try:
-            # Send current state first
-            yield f"data: {json.dumps({'type': 'state', 'data': task}, ensure_ascii=False)}\n\n"
+            # Subscribe before reading the snapshot so completion cannot fall between them.
+            snapshot = await service.get_task(task_id) or task
+            yield f"data: {json.dumps({'type': 'state', 'data': snapshot}, ensure_ascii=False)}\n\n"
+            status = snapshot["status"]
+            terminal = {"completed": "done", "cancelled": "cancelled", "failed": "error"}.get(status)
+            if terminal:
+                event = {"type": terminal, "task_id": task_id}
+                if status == "completed":
+                    event.update(result=snapshot.get("result"), progress=100, current_stage="completed")
+                elif status == "failed":
+                    event["error"] = snapshot.get("error")
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
 
             while True:
                 try:
